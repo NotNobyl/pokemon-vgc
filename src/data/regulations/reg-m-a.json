@@ -1,0 +1,37 @@
+{
+  "id": "reg-m-a",
+  "name": "Regulation M-A (Champions)",
+  "game": "champions",
+  "generation": 9,
+  "allowedPokemon": [],
+  "bannedPokemon": [
+    150, 151, 249, 250, 251, 382, 383, 384, 385, 386,
+    483, 484, 487, 491, 492, 493, 494,
+    643, 644, 646, 647, 648, 649,
+    716, 717, 718, 719, 720, 721,
+    785, 786, 787, 788, 789, 790, 791, 792, 800, 801, 802, 807, 808, 809,
+    888, 889, 890, 891, 892, 893, 894, 895, 896, 897, 898,
+    1001, 1002, 1003, 1004, 1007, 1008, 1009, 1010, 1014, 1015, 1016, 1017, 1024, 1025
+  ],
+  "allowedItems": [],
+  "bannedItems": ["soul dew"],
+  "megaEvolutions": {
+    "allowed": true,
+    "legalMegas": [
+      "venusaur", "charizard-x", "charizard-y", "blastoise",
+      "alakazam", "gengar", "kangaskhan", "pinsir",
+      "gyarados", "aerodactyl", "mewtwo-x", "mewtwo-y",
+      "ampharos", "scizor", "heracross", "houndoom",
+      "tyranitar", "blaziken", "gardevoir", "mawile",
+      "aggron", "medicham", "manectric", "banette",
+      "absol", "salamence", "metagross", "latias", "latios",
+      "garchomp", "lucario", "abomasnow",
+      "gallade", "audino", "diancie"
+    ]
+  },
+  "terastallize": false,
+  "dynamax": false,
+  "level": 50,
+  "teamSize": 6,
+  "bringCount": 4
+}

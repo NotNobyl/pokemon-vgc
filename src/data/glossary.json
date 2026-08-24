@@ -1,0 +1,77 @@
+[
+  {
+    "term": "Bring-4",
+    "definition": "In VGC, you register 6 Pokémon but only bring 4 into each battle. Choosing the right 4 based on your opponent's team is a critical skill.",
+    "category": "fundamentals"
+  },
+  {
+    "term": "Team Preview",
+    "definition": "Before a battle starts, both players see each other's full 6-Pokémon team sheets. Use this time to identify threats, predict their lead, and choose your bring-4.",
+    "category": "fundamentals"
+  },
+  {
+    "term": "Speed Control",
+    "definition": "Moves or abilities that change who moves first. Tailwind (2× speed for 4 turns), Trick Room (slow moves first for 5 turns), Icy Wind/Electroweb (lower opponent's speed). Controlling speed order is one of the most important aspects of VGC.",
+    "category": "core-mechanic"
+  },
+  {
+    "term": "Trick Room",
+    "definition": "A move that reverses speed order for 5 turns — the slowest Pokémon moves first. Teams built around Trick Room use very slow, powerful attackers. Counter it by KOing the setter, having your own TR user, or stalling out the turns.",
+    "category": "core-mechanic"
+  },
+  {
+    "term": "Tailwind",
+    "definition": "Doubles your team's speed for 4 turns. Usually set on turn 1 by a fast support Pokémon. Pairs well with moderately fast attackers who become blazing fast under it.",
+    "category": "core-mechanic"
+  },
+  {
+    "term": "Fake Out",
+    "definition": "A +3 priority move that flinches the target but only works on the first turn after switching in. Incredibly valuable in doubles for disrupting setup, protecting a partner, or buying a free turn.",
+    "category": "core-mechanic"
+  },
+  {
+    "term": "Follow Me / Rage Powder",
+    "definition": "Redirection moves that force all single-target attacks to hit the user instead. Protects a partner while it sets up (Trick Room, Tailwind, boosts) or attacks safely.",
+    "category": "core-mechanic"
+  },
+  {
+    "term": "Protect",
+    "definition": "Shields the user from all attacks for one turn. In doubles, Protect is essential for: scouting opponent moves, stalling out field effects (TR/Tailwind/weather), keeping a Pokémon alive while the partner handles a threat, and avoiding spread moves.",
+    "category": "core-mechanic"
+  },
+  {
+    "term": "Intimidate",
+    "definition": "An ability that lowers both opponents' Attack by 1 stage when the user enters the field. One of the strongest abilities in VGC — consider running at least one Intimidate user or having answers to it (Clear Body, Competitive, Defiant).",
+    "category": "ability"
+  },
+  {
+    "term": "Spread Move",
+    "definition": "A move that hits both opponents (like Earthquake, Heat Wave, Rock Slide). Deals 75% damage in doubles compared to single-target, but hitting two Pokémon at once is often worth it.",
+    "category": "core-mechanic"
+  },
+  {
+    "term": "Lead",
+    "definition": "The two Pokémon you start on the field. Your lead should address the opponent's likely strategy — e.g., lead Fake Out + setup against Trick Room teams, or lead fast attackers against offensive teams.",
+    "category": "fundamentals"
+  },
+  {
+    "term": "Back / Backline",
+    "definition": "The 2 Pokémon you keep in reserve. These switch in when leads faint or get rotated. Good backlines provide a different mode (e.g., Trick Room in the back if your leads are fast).",
+    "category": "fundamentals"
+  },
+  {
+    "term": "Win Condition",
+    "definition": "Your team's primary path to victory. This could be a sweeper that cleans up late-game, a weather attacker that overwhelms, or a Trick Room attacker that's unstoppable under TR. Identify your win-con before each game and play to preserve it.",
+    "category": "fundamentals"
+  },
+  {
+    "term": "Doubling / Double-Targeting",
+    "definition": "Both of your Pokémon attack the same target to guarantee a KO. Risky if the opponent Protects that slot, but necessary to remove a major threat. Recognizing when to double is a key intermediate skill.",
+    "category": "fundamentals"
+  },
+  {
+    "term": "Positioning",
+    "definition": "Having your Pokémon in the right slots to handle the opponent's remaining threats. Good positioning means your answers are ready to act — you don't need to switch to find them.",
+    "category": "fundamentals"
+  }
+]

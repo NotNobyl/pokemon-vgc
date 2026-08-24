@@ -1,0 +1,10 @@
+[
+  {"id": "fast-physical", "name": "Fast Physical Attacker", "evs": {"hp": 4, "attack": 252, "defense": 0, "specialAttack": 0, "specialDefense": 0, "speed": 252}, "nature": "jolly"},
+  {"id": "fast-special", "name": "Fast Special Attacker", "evs": {"hp": 4, "attack": 0, "defense": 0, "specialAttack": 252, "specialDefense": 0, "speed": 252}, "nature": "timid"},
+  {"id": "bulky-physical", "name": "Bulky Physical Wall", "evs": {"hp": 252, "attack": 0, "defense": 252, "specialAttack": 0, "specialDefense": 4, "speed": 0}, "nature": "impish"},
+  {"id": "bulky-special", "name": "Bulky Special Wall", "evs": {"hp": 252, "attack": 0, "defense": 4, "specialAttack": 0, "specialDefense": 252, "speed": 0}, "nature": "calm"},
+  {"id": "trick-room-physical", "name": "Trick Room Attacker", "evs": {"hp": 252, "attack": 252, "defense": 4, "specialAttack": 0, "specialDefense": 0, "speed": 0}, "nature": "brave"},
+  {"id": "trick-room-support", "name": "Trick Room Support", "evs": {"hp": 252, "attack": 0, "defense": 128, "specialAttack": 0, "specialDefense": 128, "speed": 0}, "nature": "relaxed"},
+  {"id": "bulky-offense-special", "name": "Bulky Special Offense", "evs": {"hp": 252, "attack": 0, "defense": 4, "specialAttack": 252, "specialDefense": 0, "speed": 0}, "nature": "modest"},
+  {"id": "balanced-support", "name": "Balanced Support", "evs": {"hp": 252, "attack": 0, "defense": 100, "specialAttack": 0, "specialDefense": 156, "speed": 0}, "nature": "bold"}
+]
