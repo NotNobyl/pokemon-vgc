@@ -5,6 +5,7 @@ const navItems = [
   { to: '/teams', label: 'Teams', icon: '⚔️' },
   { to: '/live', label: 'Live', icon: '🔴' },
   { to: '/matchup', label: 'Matchup', icon: '🎯' },
+  { to: '/lab', label: 'Lab', icon: '🧪' },
   { to: '/meta', label: 'Meta', icon: '📊' },
   { to: '/guides', label: 'Guides', icon: '📖' },
   { to: '/data', label: 'Data', icon: '⚙️' },
