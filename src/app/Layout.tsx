@@ -1,8 +1,10 @@
 import { NavLink, Outlet } from 'react-router-dom';
+import { DataSeeder } from '@/shared/components/DataSeeder';
 
 const navItems = [
   { to: '/teams', label: 'Teams', icon: '⚔️' },
   { to: '/matchup', label: 'Matchup', icon: '🎯' },
+  { to: '/meta', label: 'Meta', icon: '📊' },
   { to: '/guides', label: 'Guides', icon: '📖' },
   { to: '/data', label: 'Data', icon: '⚙️' },
 ];
@@ -16,7 +18,8 @@ export function Layout() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto p-4">
+      <main className="flex-1 overflow-y-auto p-4 space-y-4">
+        <DataSeeder />
         <Outlet />
       </main>
 

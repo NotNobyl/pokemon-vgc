@@ -4,6 +4,10 @@ import { resolve } from 'path'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
+  // Base path is configurable for deployment. Default '/' works for Netlify /
+  // Cloudflare Pages / custom domains. For GitHub Pages project sites, set
+  // VITE_BASE="/<repo-name>/" at build time. Trailing slash required.
+  base: process.env.VITE_BASE ?? '/',
   plugins: [react()],
   resolve: {
     alias: {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getPokemonCount } from '@/db/pokemon-cache';
-import { fetchAndSeedPokemon } from '@/scripts/seed-pokemon';
+import { clearPokemon, getPokemonCount } from '@/db/pokemon-cache';
+import { seedPokemonFromChampions } from '@/scripts/seed-champions-dex';
 
 interface SeedProgress {
   current: number;
@@ -11,13 +11,16 @@ interface UseDataInitResult {
   isReady: boolean;
   needsSeed: boolean;
   seedProgress: SeedProgress | null;
+  pokemonCount: number;
   startSeed: () => Promise<void>;
+  reseed: () => Promise<void>;
 }
 
 export function useDataInit(): UseDataInitResult {
   const [isReady, setIsReady] = useState(false);
   const [needsSeed, setNeedsSeed] = useState(false);
   const [seedProgress, setSeedProgress] = useState<SeedProgress | null>(null);
+  const [pokemonCount, setPokemonCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,6 +28,7 @@ export function useDataInit(): UseDataInitResult {
     async function checkData() {
       const count = await getPokemonCount();
       if (!cancelled) {
+        setPokemonCount(count);
         setNeedsSeed(count === 0);
         setIsReady(true);
       }
@@ -38,15 +42,41 @@ export function useDataInit(): UseDataInitResult {
   }, []);
 
   const startSeed = useCallback(async () => {
-    setSeedProgress({ current: 0, total: 0 });
+    setSeedProgress({ current: 0, total: 1 });
 
-    await fetchAndSeedPokemon((current, total) => {
+    await seedPokemonFromChampions((current, total) => {
       setSeedProgress({ current, total });
     });
 
+    const count = await getPokemonCount();
+    setPokemonCount(count);
     setSeedProgress(null);
     setNeedsSeed(false);
   }, []);
 
-  return { isReady, needsSeed, seedProgress, startSeed };
+  /**
+   * Clear the cached dex and reload it fresh from the Champions API. Needed to
+   * recover from an incomplete earlier seed (e.g. the id-collision bug that
+   * dropped most Pokémon).
+   */
+  const reseed = useCallback(async () => {
+    setSeedProgress({ current: 0, total: 1 });
+    await clearPokemon();
+    await seedPokemonFromChampions((current, total) => {
+      setSeedProgress({ current, total });
+    });
+    const count = await getPokemonCount();
+    setPokemonCount(count);
+    setSeedProgress(null);
+    setNeedsSeed(false);
+  }, []);
+
+  return {
+    isReady,
+    needsSeed,
+    seedProgress,
+    pokemonCount,
+    startSeed,
+    reseed,
+  };
 }

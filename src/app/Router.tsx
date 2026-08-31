@@ -4,6 +4,7 @@ import { Layout } from './Layout';
 
 const TeamsPage = lazy(() => import('@/modules/team-builder/pages/TeamsPage'));
 const MatchupPage = lazy(() => import('@/modules/matchup-tool/pages/MatchupPage'));
+const MetaPage = lazy(() => import('@/modules/meta-dashboard/pages/MetaPage'));
 const GuidesPage = lazy(() => import('@/modules/battle-guides/pages/GuidesPage'));
 const DataPage = lazy(() => import('@/modules/data-manager/pages/DataPage'));
 
@@ -36,6 +37,10 @@ export const router = createBrowserRouter([
         element: <LazyWrapper><MatchupPage /></LazyWrapper>,
       },
       {
+        path: 'meta',
+        element: <LazyWrapper><MetaPage /></LazyWrapper>,
+      },
+      {
         path: 'guides',
         element: <LazyWrapper><GuidesPage /></LazyWrapper>,
       },
@@ -45,4 +50,7 @@ export const router = createBrowserRouter([
       },
     ],
   },
-]);
+], {
+  // Respect the deployment base path (root or a GitHub Pages subpath).
+  basename: import.meta.env.BASE_URL,
+});

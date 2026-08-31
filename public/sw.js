@@ -1,71 +1,98 @@
-const CACHE_NAME = 'vgc-companion-v1';
+/* VGC Companion service worker.
+ *
+ * Goals:
+ *  - Full offline install on Android (app shell cached, SPA navigations work
+ *    offline by falling back to the cached index.html).
+ *  - Champions Battle Data API responses cached so meta/usage data is available
+ *    offline after the first successful fetch (network-first, cache fallback).
+ *  - Base-path aware: works whether the app is served at the domain root
+ *    (Netlify/Cloudflare) or under a subpath (GitHub Pages project site).
+ *
+ * Bump CACHE_VERSION on every deploy so clients pick up new hashed assets.
+ */
 
-const PRECACHE_URLS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-];
+const CACHE_VERSION = 'v3';
+const APP_CACHE = `vgc-app-${CACHE_VERSION}`;
+const API_CACHE = `vgc-api-${CACHE_VERSION}`;
 
-// Install: cache the app shell
+// The SW scope path is the deployment base (e.g. "/" or "/vgc-companion/").
+const BASE = new URL(self.registration ? self.registration.scope : self.location.href).pathname;
+
+const APP_SHELL = [BASE, `${BASE}index.html`, `${BASE}manifest.webmanifest`];
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(PRECACHE_URLS);
-    })
+    caches.open(APP_CACHE).then((cache) =>
+      // Best-effort: don't fail install if one asset 404s under a subpath.
+      Promise.allSettled(APP_SHELL.map((u) => cache.add(u))),
+    ),
   );
   self.skipWaiting();
 });
 
-// Activate: clean old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
+    caches.keys().then((keys) =>
+      Promise.all(
         keys
-          .filter((key) => key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
-      );
-    })
+          .filter((k) => k !== APP_CACHE && k !== API_CACHE)
+          .map((k) => caches.delete(k)),
+      ),
+    ),
   );
   self.clients.claim();
 });
 
-// Fetch: network-first for API calls, cache-first for app assets
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+  const { request } = event;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
 
-  // Skip non-GET requests
-  if (event.request.method !== 'GET') return;
-
-  // Network-first for PokéAPI calls (we want fresh data when online)
-  if (url.hostname === 'pokeapi.co') {
+  // 1) Champions Battle Data API + PokéAPI: network-first, fall back to cache.
+  if (
+    url.hostname === 'championsbattledata.com' ||
+    url.hostname === 'pokeapi.co'
+  ) {
     event.respondWith(
-      fetch(event.request)
+      fetch(request)
         .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(API_CACHE).then((cache) => cache.put(request, clone));
+          }
           return response;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() => caches.match(request)),
     );
     return;
   }
 
-  // Cache-first for app assets (JS, CSS, HTML)
+  // 2) Same-origin navigations (SPA routes): serve cached index.html offline.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(
+        () =>
+          caches.match(`${BASE}index.html`) ||
+          caches.match(BASE) ||
+          Response.error(),
+      ),
+    );
+    return;
+  }
+
+  // 3) Same-origin static assets: cache-first (Vite hashes filenames).
   if (url.origin === self.location.origin) {
     event.respondWith(
-      caches.match(event.request).then((cached) => {
+      caches.match(request).then((cached) => {
         if (cached) return cached;
-        return fetch(event.request).then((response) => {
-          // Cache successful responses
+        return fetch(request).then((response) => {
           if (response.ok) {
             const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+            caches.open(APP_CACHE).then((cache) => cache.put(request, clone));
           }
           return response;
         });
-      })
+      }),
     );
-    return;
   }
 });

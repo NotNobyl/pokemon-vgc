@@ -7,10 +7,12 @@ import DamageCalc from '../components/DamageCalc';
 import ThreatReport from '../components/ThreatReport';
 import MoveAdvisorPanel from '../components/MoveAdvisorPanel';
 import ScoutingLog from '../components/ScoutingLog';
+import MatchupLab from '../components/MatchupLab';
 
-type Tab = 'damage-calc' | 'threat-report' | 'move-advisor' | 'scouting-log';
+type Tab = 'matchup-lab' | 'damage-calc' | 'threat-report' | 'move-advisor' | 'scouting-log';
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'matchup-lab', label: 'Matchup Lab' },
   { id: 'damage-calc', label: 'Damage Calc' },
   { id: 'threat-report', label: 'Threat Report' },
   { id: 'move-advisor', label: 'Move Advisor' },
@@ -18,7 +20,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export default function MatchupPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('damage-calc');
+  const [activeTab, setActiveTab] = useState<Tab>('matchup-lab');
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
   const [selectedOpponentTeamId, setSelectedOpponentTeamId] = useState<string>('');
   const { teams, loadTeams } = useTeamStore();
@@ -87,6 +89,9 @@ export default function MatchupPage() {
 
       {/* Tab content */}
       <div>
+        {activeTab === 'matchup-lab' && (
+          <MatchupLab myTeam={selectedTeam} />
+        )}
         {activeTab === 'damage-calc' && (
           <DamageCalc myTeam={selectedTeam} />
         )}

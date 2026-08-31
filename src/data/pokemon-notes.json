@@ -1,0 +1,50 @@
+{
+  "_comment": "Pokemon playstyle / mechanic notes keyed by canonicalized species name (lowercase, alphanumerics only). Surfaced in the Team Builder to flag non-obvious mechanics a pilot must understand. Add freely — this is editable data, no code change needed.",
+  "notes": {
+    "palafin": {
+      "title": "Zero → Hero form change",
+      "tags": ["form-change", "physical-attacker"],
+      "text": "Palafin starts in Zero Form (weak). It only changes to Hero Form after it SWITCHES OUT and back in at least once during the battle (ability: Zero to Hero). Plan to lead it, switch it out, then bring it back as a huge physical attacker. Jet Punch (priority Water) is its signature. It does NOT transform by staying in — you must pivot it once."
+    },
+    "incineroar": {
+      "title": "Intimidate pivot",
+      "tags": ["intimidate", "pivot", "support"],
+      "text": "Drops opposing Attack on entry (Intimidate). Core support: Fake Out, Parting Shot to pivot, Knock Off for item removal. Bringing it in repeatedly stacks Intimidate pressure."
+    },
+    "torkoal": {
+      "title": "Sun setter for Trick Room",
+      "tags": ["weather", "trick-room", "setup"],
+      "text": "Drought sets Sun on entry. Very slow — pairs with Trick Room. Eruption at full HP + Sun is a huge spread nuke; damage drops sharply as its HP falls."
+    },
+    "rillaboom": {
+      "title": "Grassy Terrain + priority",
+      "tags": ["terrain", "priority"],
+      "text": "Grassy Surge sets Grassy Terrain on entry (heals grounded allies, boosts Grass moves, softens Earthquake). Grassy Glide becomes priority in terrain — key for revenge KOs and speed control."
+    },
+    "amoonguss": {
+      "title": "Redirection + Spore",
+      "tags": ["redirection", "status", "support"],
+      "text": "Rage Powder redirects single-target attacks to itself (protects a partner). Spore is 100% accuracy sleep. Regenerator heals on switch. Classic bulky support."
+    },
+    "flutter-mane": {
+      "title": "Fast special attacker (Paradox)",
+      "tags": ["speed", "special-attacker"],
+      "text": "Extremely fast and hits hard specially. Protosynthesis boosts its highest stat in Sun (or with Booster Energy). Fragile — relies on speed and Protect."
+    },
+    "urshifu": {
+      "title": "Wall-breaking priority / bypasses Protect",
+      "tags": ["physical-attacker", "protect-break"],
+      "text": "Single Strike (Wicked Blow) and Rapid Strike (Surging Strikes) both bypass Protect and always crit. Rapid Strike gets priority in some contexts via Aqua Jet. Huge physical pressure; watch which style you're facing."
+    },
+    "dondozo": {
+      "title": "Commander with Tatsugiri",
+      "tags": ["form-synergy", "setup"],
+      "text": "With a Tatsugiri partner on the field, Dondozo gets massive stat boosts (Commander — Tatsugiri jumps into its mouth). The pair must be brought together to activate it."
+    },
+    "tatsugiri": {
+      "title": "Commander enabler for Dondozo",
+      "tags": ["form-synergy", "support"],
+      "text": "Triggers Dondozo's Commander when both are active, sharply boosting Dondozo. On its own it's a frail special attacker. Bring it specifically to enable Dondozo."
+    }
+  }
+}

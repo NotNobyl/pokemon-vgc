@@ -8,6 +8,9 @@ import { useTeamStore } from '@/stores/team-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { getRegulationById } from '@/data/regulation-loader';
 import spreadPresetsData from '@/data/spread-presets.json';
+import UsageHints from './UsageHints';
+import { getPokemonNote } from '@/data/pokemon-notes';
+import { getKnownItems } from '@/db/usage-cache';
 
 const ALL_NATURES: Nature[] = [
   'hardy', 'lonely', 'brave', 'adamant', 'naughty',
@@ -44,6 +47,17 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
   const [evs, setEvs] = useState<StatSpread>(member?.evs ?? { ...DEFAULT_EVS });
   const [ivs, setIvs] = useState<StatSpread>(member?.ivs ?? { ...DEFAULT_IVS });
   const [moveSearches, setMoveSearches] = useState<string[]>(['', '', '', '']);
+
+  // Champions maxes all EVs, so the S/V EV/IV spread is not meaningful there;
+  // Champions uses Stat Points instead (surfaced in the usage hints panel).
+  const isChampions = regulation?.game === 'champions';
+
+  // Item picker: suggestions sourced from real Champions usage (held_item rows).
+  const [knownItems, setKnownItems] = useState<string[]>([]);
+  const [itemFocused, setItemFocused] = useState(false);
+  useEffect(() => {
+    void getKnownItems().then(setKnownItems);
+  }, []);
 
   useEffect(() => {
     if (member && !selectedPokemon) {
@@ -198,6 +212,38 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
 
         {selectedPokemon && (
           <>
+            {/* Real Champions usage hints for the selected species */}
+            <UsageHints pokemon={selectedPokemon} />
+
+            {/* Playstyle / mechanic notes (form changes, key abilities, etc.) */}
+            {(() => {
+              const note = getPokemonNote(selectedPokemon.name);
+              if (!note) return null;
+              return (
+                <div className="rounded-lg border border-amber-700/60 bg-amber-900/20 p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span>💡</span>
+                    <span className="font-semibold text-amber-200 text-sm">
+                      {note.title}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-200">{note.text}</p>
+                  {note.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {note.tags.map((t) => (
+                        <span
+                          key={t}
+                          className="text-[11px] bg-amber-800/40 text-amber-200 rounded-full px-2 py-0.5"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Ability */}
             <div>
               <label className="text-sm text-gray-400">Ability</label>
@@ -213,16 +259,46 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
               </select>
             </div>
 
-            {/* Item */}
-            <div>
+            {/* Item — searchable picker backed by real Champions usage items */}
+            <div className="relative">
               <label className="text-sm text-gray-400">Item</label>
               <input
                 type="text"
                 className="input w-full"
-                placeholder="e.g. Choice Scarf"
+                placeholder="Search items… e.g. Mystic Water"
                 value={item}
                 onChange={(e) => setItem(e.target.value)}
+                onFocus={() => setItemFocused(true)}
+                onBlur={() => setTimeout(() => setItemFocused(false), 200)}
               />
+              {itemFocused && knownItems.length > 0 && (
+                <div className="absolute z-10 w-full bg-gray-700 rounded-lg max-h-48 overflow-y-auto mt-1">
+                  {knownItems
+                    .filter((it) =>
+                      it.toLowerCase().includes(item.trim().toLowerCase()),
+                    )
+                    .slice(0, 12)
+                    .map((it) => (
+                      <button
+                        key={it}
+                        className="w-full px-3 py-1.5 text-left text-sm text-gray-100 hover:bg-gray-600"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setItem(it);
+                          setItemFocused(false);
+                        }}
+                      >
+                        {it}
+                      </button>
+                    ))}
+                </div>
+              )}
+              {knownItems.length === 0 && (
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Type any item name. Sync Champions data on the Data tab to rank
+                  suggestions by real usage.
+                </p>
+              )}
             </div>
 
             {/* Nature */}
@@ -256,7 +332,23 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
               </div>
             )}
 
-            {/* EVs */}
+            {/* Champions: EVs are maxed; the S/V EV/IV spread does not apply.
+                Show a Stat Points note instead (spreads appear in usage hints). */}
+            {isChampions && (
+              <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-3 text-sm text-gray-300">
+                <span className="font-semibold text-gray-200">Stat Points (Champions)</span>
+                <p className="text-gray-400 mt-1">
+                  In Pokémon Champions all base EVs are maxed, so the
+                  Showdown-style EV/IV spread isn't used here. Champions uses
+                  <strong> Stat Points</strong> (0–32 per stat) — see the common
+                  spreads in the usage panel above. The EV/IV editor only appears
+                  for Showdown / Scarlet-Violet regulations.
+                </p>
+              </div>
+            )}
+
+            {/* EVs (Showdown / Scarlet-Violet only) */}
+            {!isChampions && (
             <div>
               <div className="flex items-center justify-between">
                 <label className="text-sm text-gray-400">EVs ({evTotal}/508)</label>
@@ -287,8 +379,10 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
                 ))}
               </div>
             </div>
+            )}
 
-            {/* IVs */}
+            {/* IVs (Showdown / Scarlet-Violet only) */}
+            {!isChampions && (
             <div>
               <label className="text-sm text-gray-400">IVs</label>
               <div className="grid grid-cols-3 gap-2 mt-1">
@@ -307,6 +401,7 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
                 ))}
               </div>
             </div>
+            )}
 
             {/* Moves */}
             <div>
