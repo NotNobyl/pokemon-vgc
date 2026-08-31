@@ -30,7 +30,13 @@ describe('team persistence across navigation', () => {
   beforeEach(async () => {
     await db.teams.clear();
     // Reset the in-memory store between tests.
-    useTeamStore.setState({ teams: [], activeTeamId: null, loading: false });
+    useTeamStore.setState({
+      teams: [],
+      activeTeamId: null,
+      loading: false,
+      saveStatus: 'idle',
+      corruptRecords: [],
+    });
   });
 
   it('keeps a team with 6 members after navigating away and back', async () => {
@@ -73,5 +79,43 @@ describe('team persistence across navigation', () => {
     const fromDb = await db.teams.get(team.id);
     expect(fromDb?.members.length).toBe(1);
     expect(fromDb?.members[0].pokemonId).toBe(10);
+  });
+
+  it('reports save-status transitions and stamps schema version', async () => {
+    const store = useTeamStore.getState();
+    const team = await store.createTeam('Status Team', 'reg-m-a');
+    // After a successful create+save, status should be 'saved'.
+    expect(useTeamStore.getState().saveStatus).toBe('saved');
+    // Record carries the current schema version + a bumped edit version.
+    const fromDb = await db.teams.get(team.id);
+    expect(fromDb?.schemaVersion).toBeGreaterThanOrEqual(1);
+    expect((fromDb?.version ?? 0)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('isolates a corrupt record but still loads valid teams', async () => {
+    const store = useTeamStore.getState();
+    await store.createTeam('Valid Team', 'reg-m-a');
+    // Inject a malformed record directly into IndexedDB.
+    // (Bypass the typed API to simulate a corrupt/legacy row.)
+    await db.teams.put({ id: 'corrupt-1' } as never);
+
+    await useTeamStore.getState().loadTeams();
+    const state = useTeamStore.getState();
+    // Valid team still present; corrupt one isolated, not dropped silently.
+    expect(state.teams.some((t) => t.name === 'Valid Team')).toBe(true);
+    expect(state.corruptRecords.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('duplicateTeam creates an independent copy with new member ids', async () => {
+    const store = useTeamStore.getState();
+    const team = await store.createTeam('Original', 'reg-m-a');
+    await useTeamStore.getState().addMember(team.id, mkMember(3));
+    const copy = await useTeamStore.getState().duplicateTeam(team.id);
+    expect(copy).not.toBeNull();
+    expect(copy!.id).not.toBe(team.id);
+    expect(copy!.name).toContain('copy');
+    // Member ids regenerated so edits don't collide.
+    const orig = useTeamStore.getState().teams.find((t) => t.id === team.id)!;
+    expect(copy!.members[0].id).not.toBe(orig.members[0].id);
   });
 });
