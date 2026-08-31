@@ -5,6 +5,7 @@ import { Layout } from './Layout';
 const TeamsPage = lazy(() => import('@/modules/team-builder/pages/TeamsPage'));
 const MatchupPage = lazy(() => import('@/modules/matchup-tool/pages/MatchupPage'));
 const MetaPage = lazy(() => import('@/modules/meta-dashboard/pages/MetaPage'));
+const LiveMatchPage = lazy(() => import('@/modules/live-match/pages/LiveMatchPage'));
 const GuidesPage = lazy(() => import('@/modules/battle-guides/pages/GuidesPage'));
 const DataPage = lazy(() => import('@/modules/data-manager/pages/DataPage'));
 
@@ -39,6 +40,10 @@ export const router = createBrowserRouter([
       {
         path: 'meta',
         element: <LazyWrapper><MetaPage /></LazyWrapper>,
+      },
+      {
+        path: 'live',
+        element: <LazyWrapper><LiveMatchPage /></LazyWrapper>,
       },
       {
         path: 'guides',
