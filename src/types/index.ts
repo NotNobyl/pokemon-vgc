@@ -4,3 +4,4 @@ export * from './regulation';
 export * from './battle-log';
 export * from './matchup';
 export * from './usage';
+export * from './live-match';

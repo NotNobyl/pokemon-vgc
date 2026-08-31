@@ -232,3 +232,36 @@ export function buildMatchupReport(
     coverage,
   };
 }
+
+
+export interface Bring4Recommendation {
+  /** Team member ids ordered best-first; the top 4 are the suggested bring. */
+  ordered: { teamMemberId: string; name: string; score: number }[];
+}
+
+/**
+ * Recommend which 4 of my team to bring vs an opponent roster, using an
+ * offensive type-coverage heuristic. Pure: the caller supplies each of my
+ * members' STAB types and the opponent Pokémon's types, plus a type-chart
+ * effectiveness function. HEURISTIC only — not a game-tree solver.
+ */
+export function recommendBring4(
+  myTeam: { teamMemberId: string; name: string; types: string[] }[],
+  opponentTypes: string[][],
+  getEffectiveness: (atk: string, def: string[]) => number,
+): Bring4Recommendation {
+  const ordered = myTeam
+    .map((mon) => {
+      let score = 0;
+      for (const atkType of mon.types) {
+        for (const defTypes of opponentTypes) {
+          if (defTypes.length === 0) continue;
+          const eff = getEffectiveness(atkType, defTypes);
+          score += eff >= 2 ? 2 : eff === 1 ? 0.5 : eff > 0 ? -0.5 : -1;
+        }
+      }
+      return { teamMemberId: mon.teamMemberId, name: mon.name, score };
+    })
+    .sort((a, b) => b.score - a.score);
+  return { ordered };
+}

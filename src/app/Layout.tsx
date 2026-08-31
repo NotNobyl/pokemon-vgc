@@ -3,6 +3,7 @@ import { DataSeeder } from '@/shared/components/DataSeeder';
 
 const navItems = [
   { to: '/teams', label: 'Teams', icon: '⚔️' },
+  { to: '/live', label: 'Live', icon: '🔴' },
   { to: '/matchup', label: 'Matchup', icon: '🎯' },
   { to: '/meta', label: 'Meta', icon: '📊' },
   { to: '/guides', label: 'Guides', icon: '📖' },
