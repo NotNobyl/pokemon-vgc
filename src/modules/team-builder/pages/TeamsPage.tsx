@@ -4,21 +4,29 @@ import { useSettingsStore } from '@/stores/settings-store';
 import TeamDetail from '../components/TeamDetail';
 
 export default function TeamsPage() {
-  const { teams, loading, loadTeams, createTeam, deleteTeam } = useTeamStore();
+  const { teams, loading, loadTeams, createTeam, deleteTeam, duplicateTeam } = useTeamStore();
   const { selectedRegulationId } = useSettingsStore();
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
 
   useEffect(() => {
     void loadTeams();
   }, [loadTeams]);
 
   const handleCreateTeam = async () => {
-    const name = prompt('Enter team name:');
-    if (name?.trim()) {
-      const team = await createTeam(name.trim(), selectedRegulationId);
-      setSelectedTeamId(team.id);
-    }
+    const name = newName.trim();
+    if (!name) return;
+    const team = await createTeam(name, selectedRegulationId);
+    setNewName('');
+    setCreating(false);
+    setSelectedTeamId(team.id);
+  };
+
+  const handleDuplicate = async (id: string) => {
+    const copy = await duplicateTeam(id);
+    if (copy) setSelectedTeamId(copy.id);
   };
 
   const handleDelete = async (id: string) => {
@@ -34,10 +42,34 @@ export default function TeamsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-100">My Teams</h2>
-        <button className="btn-primary" onClick={() => void handleCreateTeam()}>
+        <button className="btn-primary" onClick={() => setCreating((c) => !c)}>
           + New Team
         </button>
       </div>
+
+      {creating && (
+        <div className="card flex flex-col sm:flex-row gap-2">
+          <input
+            className="input flex-1"
+            placeholder="Team name…"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleCreateTeam();
+              if (e.key === 'Escape') { setCreating(false); setNewName(''); }
+            }}
+            autoFocus
+          />
+          <div className="flex gap-2">
+            <button className="btn-primary" disabled={!newName.trim()} onClick={() => void handleCreateTeam()}>
+              Create
+            </button>
+            <button className="btn-secondary" onClick={() => { setCreating(false); setNewName(''); }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="card">
@@ -57,16 +89,29 @@ export default function TeamsPage() {
             >
               <div className="flex items-start justify-between">
                 <h3 className="font-semibold text-gray-100 truncate pr-2">{team.name}</h3>
-                <button
-                  className="text-gray-500 hover:text-red-400 transition-colors text-sm shrink-0"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setConfirmDeleteId(team.id);
-                  }}
-                  aria-label={`Delete ${team.name}`}
-                >
-                  🗑
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    className="text-gray-500 hover:text-blue-400 transition-colors text-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDuplicate(team.id);
+                    }}
+                    aria-label={`Duplicate ${team.name}`}
+                    title="Duplicate"
+                  >
+                    ⧉
+                  </button>
+                  <button
+                    className="text-gray-500 hover:text-red-400 transition-colors text-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDeleteId(team.id);
+                    }}
+                    aria-label={`Delete ${team.name}`}
+                  >
+                    🗑
+                  </button>
+                </div>
               </div>
 
               {team.archetype.length > 0 && (
