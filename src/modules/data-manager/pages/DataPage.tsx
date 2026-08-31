@@ -39,6 +39,7 @@ export default function DataPage() {
   const {
     pokemonCount,
     seedProgress,
+    lastSeedMessage,
     reseed,
   } = useDataInit();
   const isReseeding = seedProgress !== null;
@@ -180,6 +181,12 @@ export default function DataPage() {
         {isReseeding && seedProgress && (
           <p className="mt-2 text-sm text-gray-300" aria-live="polite">
             Reloading Champions dex…
+          </p>
+        )}
+
+        {!isReseeding && lastSeedMessage && (
+          <p className="mt-2 text-sm text-green-400" aria-live="polite">
+            {lastSeedMessage}
           </p>
         )}
 

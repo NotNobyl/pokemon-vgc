@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Archetype } from '@/types/team';
 import { useTeamStore } from '@/stores/team-store';
+import type { SaveStatus } from '@/stores/team-store';
 import { useTeamPokemon } from '../hooks/useTeamPokemon';
 import PokemonSlot from './PokemonSlot';
 import PokemonEditor from './PokemonEditor';
@@ -21,7 +22,7 @@ const ARCHETYPES: Archetype[] = [
 type AnalysisTab = 'synergy' | 'speed' | 'roles';
 
 export default function TeamDetail({ teamId, onBack }: TeamDetailProps) {
-  const { teams, updateTeam, removeMember } = useTeamStore();
+  const { teams, updateTeam, removeMember, saveStatus } = useTeamStore();
   const team = teams.find((t) => t.id === teamId);
 
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
@@ -101,6 +102,7 @@ export default function TeamDetail({ teamId, onBack }: TeamDetailProps) {
             {team.name}
           </h2>
         )}
+        <SaveStatusBadge status={saveStatus} />
       </div>
 
       {/* Archetype Tags */}
@@ -190,5 +192,26 @@ export default function TeamDetail({ teamId, onBack }: TeamDetailProps) {
         />
       )}
     </div>
+  );
+}
+
+
+function SaveStatusBadge({ status }: { status: SaveStatus }) {
+  const map: Record<SaveStatus, { text: string; className: string } | null> = {
+    idle: null,
+    saving: { text: 'Saving…', className: 'text-yellow-400' },
+    saved: { text: 'Saved', className: 'text-green-400' },
+    error: { text: 'Save failed', className: 'text-red-400' },
+  };
+  const cfg = map[status];
+  if (!cfg) return null;
+  return (
+    <span
+      className={`ml-auto text-xs font-medium ${cfg.className}`}
+      role="status"
+      aria-live="polite"
+    >
+      {cfg.text}
+    </span>
   );
 }

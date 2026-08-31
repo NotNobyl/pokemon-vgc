@@ -32,7 +32,18 @@ export interface Team {
   members: TeamMember[];
   createdAt: number;
   updatedAt: number;
+  /** Storage schema version for migrations. Absent on pre-v1 records. */
+  schemaVersion?: number;
+  /** Monotonic team edit version, for last-write conflict detection. */
+  version?: number;
+  /** Free-text user notes. */
+  notes?: string;
+  /** Origin, e.g. 'manual' | 'imported' | 'recommendation'. */
+  source?: string;
 }
+
+/** Current team-record schema version. Bump when the Team shape changes. */
+export const TEAM_SCHEMA_VERSION = 1;
 
 export type Archetype =
   | 'trick-room'

@@ -12,6 +12,7 @@ interface UseDataInitResult {
   needsSeed: boolean;
   seedProgress: SeedProgress | null;
   pokemonCount: number;
+  lastSeedMessage: string | null;
   startSeed: () => Promise<void>;
   reseed: () => Promise<void>;
 }
@@ -21,6 +22,7 @@ export function useDataInit(): UseDataInitResult {
   const [needsSeed, setNeedsSeed] = useState(false);
   const [seedProgress, setSeedProgress] = useState<SeedProgress | null>(null);
   const [pokemonCount, setPokemonCount] = useState(0);
+  const [lastSeedMessage, setLastSeedMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,12 +46,13 @@ export function useDataInit(): UseDataInitResult {
   const startSeed = useCallback(async () => {
     setSeedProgress({ current: 0, total: 1 });
 
-    await seedPokemonFromChampions((current, total) => {
+    const result = await seedPokemonFromChampions((current, total) => {
       setSeedProgress({ current, total });
     });
 
     const count = await getPokemonCount();
     setPokemonCount(count);
+    setLastSeedMessage(formatSeedMessage(result));
     setSeedProgress(null);
     setNeedsSeed(false);
   }, []);
@@ -62,11 +65,12 @@ export function useDataInit(): UseDataInitResult {
   const reseed = useCallback(async () => {
     setSeedProgress({ current: 0, total: 1 });
     await clearPokemon();
-    await seedPokemonFromChampions((current, total) => {
+    const result = await seedPokemonFromChampions((current, total) => {
       setSeedProgress({ current, total });
     });
     const count = await getPokemonCount();
     setPokemonCount(count);
+    setLastSeedMessage(formatSeedMessage(result));
     setSeedProgress(null);
     setNeedsSeed(false);
   }, []);
@@ -76,7 +80,22 @@ export function useDataInit(): UseDataInitResult {
     needsSeed,
     seedProgress,
     pokemonCount,
+    lastSeedMessage,
     startSeed,
     reseed,
   };
+}
+
+/** Human-readable, non-alarming summary of a seed run. */
+function formatSeedMessage(result: {
+  seeded: number;
+  duplicatesSkipped: number;
+}): string {
+  const base = `Loaded ${result.seeded} Pokémon`;
+  if (result.duplicatesSkipped > 0) {
+    return `${base} (${result.duplicatesSkipped} duplicate ${
+      result.duplicatesSkipped === 1 ? 'entry' : 'entries'
+    } skipped — same Pokémon listed twice by the source).`;
+  }
+  return `${base}.`;
 }
