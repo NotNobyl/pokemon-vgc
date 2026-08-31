@@ -40,6 +40,22 @@ export class VGCDatabase extends Dexie {
       usageData:
         'key, showdownId, format, season, provenance.retrievedAt, provenance.source',
     });
+
+    // v3: add `updatedAt` to the teams index.
+    // BUGFIX: team-store.loadTeams() does `orderBy('updatedAt')`, but earlier
+    // schemas did NOT index updatedAt. That threw a Dexie SchemaError on load,
+    // which was swallowed, leaving the team list empty after navigation
+    // (reported as "teams disappearing"). Indexing updatedAt fixes the query.
+    this.version(3).stores({
+      pokemon: 'id, name, *types',
+      moves: 'name, type, category',
+      teams: 'id, name, regulationId, *archetype, createdAt, updatedAt',
+      battleLogs: 'id, teamId, date, result',
+      scoutingLog: 'id, name, date',
+      regulations: 'id, name, game',
+      usageData:
+        'key, showdownId, format, season, provenance.retrievedAt, provenance.source',
+    });
   }
 }
 

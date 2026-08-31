@@ -24,8 +24,23 @@ export const useTeamStore = create<TeamState>()((set, get) => ({
 
   loadTeams: async () => {
     set({ loading: true });
-    const teams = await db.teams.orderBy('updatedAt').reverse().toArray();
-    set({ teams, loading: false });
+    try {
+      // Prefer the indexed ordering; fall back to an unindexed read + in-memory
+      // sort so a schema/index issue can never blank the list (the original
+      // "teams disappearing" bug was a swallowed SchemaError here).
+      let teams: Team[];
+      try {
+        teams = await db.teams.orderBy('updatedAt').reverse().toArray();
+      } catch {
+        teams = await db.teams.toArray();
+        teams.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+      }
+      set({ teams, loading: false });
+    } catch (err) {
+      // Do NOT overwrite existing in-memory teams with an empty list on error.
+      console.error('[team-store] loadTeams failed:', err);
+      set({ loading: false });
+    }
   },
 
   createTeam: async (name, regulationId) => {
