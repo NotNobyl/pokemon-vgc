@@ -81,6 +81,8 @@ export function championsEntryToPokemon(entry: IndexEntry): Pokemon {
 
 export interface ChampionsSeedResult {
   seeded: number;
+  /** Count of raw entries skipped as exact duplicates (same showdownId). */
+  duplicatesSkipped: number;
   season: string;
 }
 
@@ -107,9 +109,15 @@ export async function seedPokemonFromChampions(
   const usedIds = new Set<number>();
   const seenShowdownIds = new Set<string>();
   const unique: Pokemon[] = [];
+  let duplicatesSkipped = 0;
 
   for (const entry of index.entries) {
-    if (seenShowdownIds.has(entry.showdownId)) continue; // true duplicate
+    if (seenShowdownIds.has(entry.showdownId)) {
+      // Exact duplicate (same showdownId) — e.g. the API lists Rotom Fan twice
+      // as "Fan Rotom" and "Rotom Fan". Skipping it is correct, not a failure.
+      duplicatesSkipped++;
+      continue;
+    }
     seenShowdownIds.add(entry.showdownId);
 
     const pokemon = championsEntryToPokemon(entry);
@@ -126,5 +134,5 @@ export async function seedPokemonFromChampions(
   onProgress?.(unique.length, unique.length);
   await bulkStorePokemon(unique);
 
-  return { seeded: unique.length, season: index.season };
+  return { seeded: unique.length, duplicatesSkipped, season: index.season };
 }
