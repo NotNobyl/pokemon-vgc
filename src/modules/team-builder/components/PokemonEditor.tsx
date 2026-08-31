@@ -11,6 +11,9 @@ import spreadPresetsData from '@/data/spread-presets.json';
 import UsageHints from './UsageHints';
 import { getPokemonNote } from '@/data/pokemon-notes';
 import { getKnownItems } from '@/db/usage-cache';
+import type { PokemonUsage } from '@/types/usage';
+import { getUsageForShowdownId, topRows } from '@/stores/usage-store';
+import { candidateKeys } from '@/data/sources/showdown-mapping';
 
 const ALL_NATURES: Nature[] = [
   'hardy', 'lonely', 'brave', 'adamant', 'naughty',
@@ -121,7 +124,20 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
     });
   };
 
-  const handleSave = async () => {
+  const resetForNext = () => {
+    setSelectedPokemon(undefined);
+    setShowSearch(true);
+    setAbility('');
+    setItem('');
+    setNature('adamant');
+    setTeraType(undefined);
+    setMoves(['', '', '', '']);
+    setMoveSearches(['', '', '', '']);
+    setEvs({ ...DEFAULT_EVS });
+    setIvs({ ...DEFAULT_IVS });
+  };
+
+  const handleSave = async (addNext = false) => {
     if (!selectedPokemon) return;
 
     const memberData: TeamMember = {
@@ -143,7 +159,32 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
     } else {
       await addMember(teamId, memberData);
     }
-    onClose();
+
+    if (addNext && !member) {
+      resetForNext(); // keep the editor open to add another Pokémon
+    } else {
+      onClose();
+    }
+  };
+
+  /** Quick-fill ability/item/nature/moves from this species' most common usage. */
+  const applyCommonSet = async () => {
+    if (!selectedPokemon) return;
+    let usage: PokemonUsage | undefined;
+    for (const key of candidateKeys(selectedPokemon.name)) {
+      usage = await getUsageForShowdownId(key);
+      if (usage) break;
+    }
+    if (!usage) return;
+    const top = (cat: Parameters<typeof topRows>[1]) => topRows(usage, cat, 4);
+    const topAbility = top('ability')[0]?.name;
+    const topItem = top('held_item')[0]?.name;
+    const topMoves = top('move').map((r) => r.name).slice(0, 4);
+    if (topAbility) setAbility(topAbility);
+    if (topItem) setItem(topItem);
+    if (topMoves.length > 0) {
+      setMoves([topMoves[0] ?? '', topMoves[1] ?? '', topMoves[2] ?? '', topMoves[3] ?? '']);
+    }
   };
 
   const evTotal = Object.values(evs).reduce((sum, v) => sum + v, 0);
@@ -214,6 +255,13 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
           <>
             {/* Real Champions usage hints for the selected species */}
             <UsageHints pokemon={selectedPokemon} />
+            <button
+              className="btn-secondary w-full text-sm"
+              onClick={() => void applyCommonSet()}
+              title="Fill ability, item, and moves from the most common usage"
+            >
+              ⚡ Use common set (from usage)
+            </button>
 
             {/* Playstyle / mechanic notes (form changes, key abilities, etc.) */}
             {(() => {
@@ -449,10 +497,19 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
             </div>
 
             {/* Save */}
-            <div className="flex gap-2 pt-2">
-              <button className="btn-primary flex-1" onClick={() => void handleSave()}>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <button className="btn-primary flex-1" onClick={() => void handleSave(false)}>
                 {member ? 'Update' : 'Add to Team'}
               </button>
+              {!member && (
+                <button
+                  className="btn-secondary"
+                  onClick={() => void handleSave(true)}
+                  title="Add this Pokémon and immediately start another"
+                >
+                  Save &amp; Add Next
+                </button>
+              )}
               <button className="btn-secondary" onClick={onClose}>
                 Cancel
               </button>

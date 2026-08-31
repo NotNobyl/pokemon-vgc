@@ -9,6 +9,9 @@ export default function MetaPage() {
   const { data, loading, season } = useMeta();
   const attribution = useUsageStore((s) => s.attribution);
   const attributionUrl = useUsageStore((s) => s.attributionUrl);
+  const syncAll = useUsageStore((s) => s.syncAll);
+  const isSyncing = useUsageStore((s) => s.isSyncing);
+  const syncProgress = useUsageStore((s) => s.syncProgress);
   const [tab, setTab] = useState<Tab>('ranking');
 
   if (loading) {
@@ -16,12 +19,32 @@ export default function MetaPage() {
   }
 
   if (!data || data.records.length === 0) {
+    const pct =
+      syncProgress && syncProgress.total > 0
+        ? Math.round((syncProgress.current / syncProgress.total) * 100)
+        : 0;
     return (
       <div className="space-y-4">
         <h2 className="text-2xl font-bold">Meta Dashboard</h2>
-        <div className="card text-gray-300">
-          No usage data cached yet. Go to the <strong>Data</strong> tab and sync
-          Champions Battle Data, then come back here.
+        <div className="card space-y-3">
+          <p className="text-gray-300">
+            No Champions usage data cached yet. Sync it to see usage rankings,
+            cores, and item/move/ability leaders.
+          </p>
+          {isSyncing ? (
+            <div>
+              <p className="text-sm text-gray-400 mb-1" aria-live="polite">
+                Syncing{syncProgress ? ` ${syncProgress.currentName} (${syncProgress.current}/${syncProgress.total})` : '…'}
+              </p>
+              <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-600 transition-all" style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+          ) : (
+            <button className="btn-primary" onClick={() => void syncAll()}>
+              Sync usage data now
+            </button>
+          )}
         </div>
       </div>
     );
