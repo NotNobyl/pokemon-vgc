@@ -11,6 +11,7 @@ import { useTeamStore } from '@/stores/team-store';
 import { buildProvenTeams, generateDiverseTeams } from '@/engine/team-recommend';
 import { assembleMetaTeam, type AssembledMetaTeam } from '@/engine/meta-team';
 import { scoreTeam, type ScorableMember, type TeamScore } from '@/engine/team-score';
+import { buildGamePlan, type GamePlan, type GamePlanMember } from '@/engine/game-plan';
 import {
   coverageGapFindings,
   usageResidualFindings,
@@ -142,7 +143,22 @@ export default function MetaTeamsView() {
       best.candidate.displayNames.map((n) => ({ displayName: n, showdownId: canonicalize(n) })),
       records,
     );
-    return { assembled, score: best.score };
+    // Build a practical game plan from the best team's resolved members.
+    const planMembers: GamePlanMember[] = best.candidate.displayNames
+      .map((n) => {
+        const d = dexByCanon.get(canonicalize(n));
+        if (!d) return null;
+        const u = usageByCanon.get(canonicalize(n));
+        const moves = u
+          ? u.rows.filter((r) => r.category === 'move' && r.name).sort((a, b) => a.rank - b.rank).slice(0, 4).map((r) => r.name)
+          : [];
+        const ability = u?.rows.filter((r) => r.category === 'ability').sort((a, b) => a.rank - b.rank)[0]?.name ?? '';
+        return { name: d.name, baseStats: d.baseStats, types: d.types, moves, ability };
+      })
+      .filter((m): m is GamePlanMember => !!m);
+    const plan = buildGamePlan(planMembers);
+
+    return { assembled, score: best.score, plan };
   }, [records, dex, dexByCanon, usageByCanon, refreshIndex, moveTypeMap]);
 
   const teams: AssembledMetaTeam[] = useMemo(() => {
@@ -261,6 +277,8 @@ export default function MetaTeamsView() {
                 </ul>
               )}
 
+              {suggestion.plan && <GamePlanBlock plan={suggestion.plan} />}
+
               <button className="btn-primary text-sm" onClick={() => void handleSave(suggestion.assembled)}>
                 Save this team
               </button>
@@ -322,6 +340,30 @@ export default function MetaTeamsView() {
       )}
 
       <SourcesAndTransfer attribution={attribution} />
+    </div>
+  );
+}
+
+function GamePlanBlock({ plan }: { plan: GamePlan }) {
+  return (
+    <div className="rounded-lg border border-gray-700 bg-gray-900/40 p-2 space-y-1 text-xs">
+      <div className="font-semibold text-gray-200">
+        🎮 Game plan · <span className="capitalize">{plan.archetype.replace('-', ' ')}</span>
+      </div>
+      <div className="capitalize"><span className="text-gray-500">Lead: </span>{plan.leads.members.join(' + ')}</div>
+      <div className="text-gray-400">{plan.leads.reason}</div>
+      {plan.altLeads && (
+        <div className="capitalize"><span className="text-gray-500">Alt lead: </span>{plan.altLeads.members.join(' + ')}</div>
+      )}
+      <div className="capitalize"><span className="text-gray-500">Bring-4: </span>{plan.bringFour.join(', ')}</div>
+      {plan.benchOften.length > 0 && (
+        <div className="capitalize"><span className="text-gray-500">Often bench: </span>{plan.benchOften.join(', ')}</div>
+      )}
+      <div><span className="text-gray-500">Win con: </span>{plan.winCondition}</div>
+      <div><span className="text-gray-500">Speed: </span>{plan.speedControlPlan}</div>
+      <div className="text-green-300"><span className="text-gray-500">Favorable: </span>{plan.favorable.join('; ')}</div>
+      <div className="text-red-300"><span className="text-gray-500">Difficult: </span>{plan.difficult.join('; ')}</div>
+      <div className="text-[10px] text-gray-500">Structural/heuristic plan — not a guaranteed matchup outcome.</div>
     </div>
   );
 }

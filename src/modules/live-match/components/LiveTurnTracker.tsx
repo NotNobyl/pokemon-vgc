@@ -19,25 +19,35 @@ import type { BattleLog } from '@/types/battle-log';
  * per-Pokémon reveal logging, plus finish -> game log with improvement notes.
  */
 export default function LiveTurnTracker() {
-  const { active, revealOpponentInfo, addTurn, finish } = useLiveMatchStore();
+  const { active, revealOpponentInfo, toggleBrought, addTurn, finish } = useLiveMatchStore();
   const { addLog } = useBattleLogStore();
   const season = useUsageStore((s) => s.season);
 
   const [usageByName, setUsageByName] = useState<Map<string, PokemonUsage>>(new Map());
   const [turnNote, setTurnNote] = useState('');
   const [savedLog, setSavedLog] = useState<BattleLog | null>(null);
+  const [pendingResult, setPendingResult] = useState<'win' | 'loss' | null>(null);
 
   // Load cached usage for each opponent (for predictions).
+  // Opponent identity key — only re-fetch usage when the ROSTER changes, not on
+  // every reveal/turn write (which previously re-fetched all usage and caused
+  // the back-and-forth jank).
+  const opponentKey = active ? active.opponents.map((o) => o.name).join('|') : '';
+
   useEffect(() => {
     let cancelled = false;
+    const names = opponentKey ? opponentKey.split('|') : [];
     async function load() {
-      if (!active) return;
+      if (names.length === 0) {
+        setUsageByName(new Map());
+        return;
+      }
       const map = new Map<string, PokemonUsage>();
-      for (const opp of active.opponents) {
-        for (const key of candidateKeys(opp.name)) {
+      for (const name of names) {
+        for (const key of candidateKeys(name)) {
           const u = await getUsageForShowdownId(key);
           if (u) {
-            map.set(opp.name, u);
+            map.set(name, u);
             break;
           }
         }
@@ -48,7 +58,7 @@ export default function LiveTurnTracker() {
     return () => {
       cancelled = true;
     };
-  }, [active]);
+  }, [opponentKey]);
 
   if (!active) return null;
 
@@ -122,9 +132,20 @@ export default function LiveTurnTracker() {
             const items = topRows(u, 'held_item', 2);
             const abilities = topRows(u, 'ability', 1);
             return (
-              <div key={opp.name} className="border-b border-gray-800 pb-2 last:border-0">
-                <div className="flex items-center justify-between">
-                  <span className="capitalize font-medium">{opp.name}</span>
+              <div key={opp.name} className={`border-b border-gray-800 pb-2 last:border-0 ${opp.brought ? '' : 'opacity-60'}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="capitalize font-medium flex-1">{opp.name}</span>
+                  <button
+                    className={`text-[11px] px-2 py-0.5 rounded-full ${
+                      opp.brought
+                        ? 'bg-green-700 text-white'
+                        : 'bg-gray-700 text-gray-300'
+                    }`}
+                    onClick={() => void toggleBrought(opp.name)}
+                    title="Mark whether the opponent brought this Pokémon"
+                  >
+                    {opp.brought ? '✓ brought' : 'bench'}
+                  </button>
                   {conf && (
                     <span
                       className={`text-xs ${
@@ -222,20 +243,39 @@ export default function LiveTurnTracker() {
       {/* Finish */}
       <div className="card">
         <h3 className="font-semibold mb-2">Finish match</h3>
-        <div className="flex gap-2">
-          <button
-            className="flex-1 px-4 py-3 bg-green-700 hover:bg-green-600 text-white rounded-lg font-medium"
-            onClick={() => void handleFinish('win')}
-          >
-            Win
-          </button>
-          <button
-            className="flex-1 px-4 py-3 bg-red-700 hover:bg-red-600 text-white rounded-lg font-medium"
-            onClick={() => void handleFinish('loss')}
-          >
-            Loss
-          </button>
-        </div>
+        {pendingResult ? (
+          <div className="space-y-2">
+            <p className="text-sm text-gray-300">
+              Log this match as a <strong className={pendingResult === 'win' ? 'text-green-400' : 'text-red-400'}>{pendingResult.toUpperCase()}</strong>?
+            </p>
+            <div className="flex gap-2">
+              <button
+                className={`flex-1 px-4 py-3 rounded-lg font-medium text-white ${pendingResult === 'win' ? 'bg-green-700 hover:bg-green-600' : 'bg-red-700 hover:bg-red-600'}`}
+                onClick={() => void handleFinish(pendingResult)}
+              >
+                Confirm {pendingResult}
+              </button>
+              <button className="btn-secondary" onClick={() => setPendingResult(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <button
+              className="flex-1 px-4 py-3 bg-green-700/80 hover:bg-green-600 text-white rounded-lg font-medium"
+              onClick={() => setPendingResult('win')}
+            >
+              Win
+            </button>
+            <button
+              className="flex-1 px-4 py-3 bg-red-700/80 hover:bg-red-600 text-white rounded-lg font-medium"
+              onClick={() => setPendingResult('loss')}
+            >
+              Loss
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
