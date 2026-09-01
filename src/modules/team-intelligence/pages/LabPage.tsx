@@ -8,8 +8,18 @@ import { CURRENT_FORMAT, useUsageStore } from '@/stores/usage-store';
 import { rankByTeammateCoOccurrence } from '@/engine/meta-aggregator';
 import { scoreTeam, type ScorableMember, type TeamScore } from '@/engine/team-score';
 import { rankTeams, compareScoredTeams, type ScoredTeam } from '@/engine/team-compare';
+import {
+  buildProvenTeams,
+  buildAroundCore,
+  improveCurrentTeam,
+  evidenceLabelText,
+  type TeamCandidate,
+  type ImprovementSuggestion,
+} from '@/engine/team-recommend';
+import type { PokemonUsage } from '@/types/usage';
 
-type Mode = 'breakdown' | 'compare';
+type Mode = 'breakdown' | 'compare' | 'recommend';
+type RecMode = 'proven' | 'core' | 'improve';
 
 /**
  * Team Intelligence Lab — Slice 3a.
@@ -26,6 +36,9 @@ export default function LabPage() {
   const [compareId, setCompareId] = useState<string>('');
   const [scorable, setScorable] = useState<Map<string, ScorableMember[]>>(new Map());
   const [popularity, setPopularity] = useState<Map<string, number>>(new Map());
+  const [usageRecords, setUsageRecords] = useState<PokemonUsage[]>([]);
+  const [recMode, setRecMode] = useState<RecMode>('proven');
+  const [coreInput, setCoreInput] = useState('');
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -40,7 +53,10 @@ export default function LabPage() {
       const ranking = rankByTeammateCoOccurrence(records);
       const map = new Map<string, number>();
       for (const entry of ranking) map.set(entry.key, entry.score / 100);
-      if (!cancelled) setPopularity(map);
+      if (!cancelled) {
+        setPopularity(map);
+        setUsageRecords(records);
+      }
     }
     void load();
     return () => {
@@ -120,22 +136,39 @@ export default function LabPage() {
     return compareScoredTeams(a, b);
   }, [teamId, compareId, ranked]);
 
+  const provenTeams: TeamCandidate[] = useMemo(
+    () => (recMode === 'proven' ? buildProvenTeams(usageRecords, 3) : []),
+    [recMode, usageRecords],
+  );
+
+  const coreTeam: TeamCandidate | null = useMemo(() => {
+    if (recMode !== 'core' || !coreInput.trim()) return null;
+    const core = coreInput.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 3);
+    return buildAroundCore(core, usageRecords);
+  }, [recMode, coreInput, usageRecords]);
+
+  const improvements: ImprovementSuggestion[] = useMemo(() => {
+    if (recMode !== 'improve' || !selectedTeam) return [];
+    const members = scorable.get(selectedTeam.id) ?? [];
+    return improveCurrentTeam(members.map((m) => m.name), usageRecords, 3);
+  }, [recMode, selectedTeam, scorable, usageRecords]);
+
   if (!ready) return <div className="text-gray-400">Loading…</div>;
 
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">Team Intelligence Lab</h2>
 
-      <div className="flex gap-1">
-        {(['breakdown', 'compare'] as Mode[]).map((m) => (
+      <div className="flex gap-1 flex-wrap">
+        {(['breakdown', 'compare', 'recommend'] as Mode[]).map((m) => (
           <button
             key={m}
             onClick={() => setMode(m)}
-            className={`px-3 py-1.5 rounded-lg text-sm capitalize ${
+            className={`px-3 py-1.5 rounded-lg text-sm ${
               mode === m ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
             }`}
           >
-            {m === 'breakdown' ? 'Score Breakdown' : 'Compare Teams'}
+            {m === 'breakdown' ? 'Score Breakdown' : m === 'compare' ? 'Compare Teams' : 'Recommend'}
           </button>
         ))}
       </div>
@@ -169,6 +202,21 @@ export default function LabPage() {
               </select>
             )}
           </div>
+
+          {/* Recommend */}
+          {mode === 'recommend' && (
+            <RecommendPanel
+              recMode={recMode}
+              setRecMode={setRecMode}
+              coreInput={coreInput}
+              setCoreInput={setCoreInput}
+              provenTeams={provenTeams}
+              coreTeam={coreTeam}
+              improvements={improvements}
+              hasUsage={usageRecords.length > 0}
+              hasSelectedTeam={!!selectedTeam}
+            />
+          )}
 
           {/* Breakdown */}
           {mode === 'breakdown' && selectedScore && (
@@ -222,6 +270,135 @@ export default function LabPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function RecommendPanel({
+  recMode,
+  setRecMode,
+  coreInput,
+  setCoreInput,
+  provenTeams,
+  coreTeam,
+  improvements,
+  hasUsage,
+  hasSelectedTeam,
+}: {
+  recMode: RecMode;
+  setRecMode: (m: RecMode) => void;
+  coreInput: string;
+  setCoreInput: (s: string) => void;
+  provenTeams: TeamCandidate[];
+  coreTeam: TeamCandidate | null;
+  improvements: ImprovementSuggestion[];
+  hasUsage: boolean;
+  hasSelectedTeam: boolean;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-1 flex-wrap">
+        {([
+          ['proven', 'Best Proven'],
+          ['core', 'Build Around Core'],
+          ['improve', 'Improve Current'],
+        ] as [RecMode, string][]).map(([m, label]) => (
+          <button
+            key={m}
+            onClick={() => setRecMode(m)}
+            className={`px-3 py-1 rounded-lg text-xs ${
+              recMode === m ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {!hasUsage && (
+        <div className="card text-sm text-gray-400">
+          Recommendations use cached Champions usage. Sync it on the Data tab
+          (or Meta tab) first for meaningful results.
+        </div>
+      )}
+
+      {recMode === 'proven' &&
+        provenTeams.map((c, i) => <CandidateCard key={i} c={c} rank={i + 1} />)}
+
+      {recMode === 'core' && (
+        <div className="space-y-2">
+          <input
+            className="input w-full"
+            placeholder="Core Pokémon, comma-separated (1–3), e.g. Incineroar, Rillaboom"
+            value={coreInput}
+            onChange={(e) => setCoreInput(e.target.value)}
+          />
+          {coreTeam && <CandidateCard c={coreTeam} />}
+        </div>
+      )}
+
+      {recMode === 'improve' && (
+        <div className="card">
+          <h3 className="font-semibold mb-1">Smallest helpful changes</h3>
+          {!hasSelectedTeam ? (
+            <p className="text-sm text-gray-400">Select a team above to get suggestions.</p>
+          ) : improvements.length === 0 ? (
+            <p className="text-sm text-gray-400">
+              No clear single-swap suggestion from usage data.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {improvements.map((s, i) => (
+                <li key={i} className="text-sm">
+                  <div className="capitalize">
+                    <span className="text-red-300">− {s.replaceName}</span>{' '}
+                    <span className="text-gray-500">→</span>{' '}
+                    <span className="text-green-300">+ {s.withName}</span>
+                    <span className="ml-2 text-[11px] text-gray-500">
+                      {evidenceLabelText(s.evidence)}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-400">{s.reason}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-xs text-gray-500 mt-2">
+            Heuristic from usage co-occurrence. Test a change over several games
+            before committing.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CandidateCard({ c, rank }: { c: TeamCandidate; rank?: number }) {
+  return (
+    <div className="card space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold">
+          {rank ? `#${rank} ` : ''}Suggested team
+        </h3>
+        <span className="text-xs text-gray-400">{evidenceLabelText(c.evidence)}</span>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {c.displayNames.map((n, i) => (
+          <span
+            key={`${n}-${i}`}
+            className={`px-2 py-0.5 rounded text-xs capitalize ${
+              c.locked.includes(n.toLowerCase().replace(/[^a-z0-9]/g, ''))
+                ? 'bg-blue-700 text-white'
+                : 'bg-gray-700 text-gray-200'
+            }`}
+          >
+            {n}
+          </span>
+        ))}
+      </div>
+      <ul className="text-xs text-gray-400 space-y-0.5">
+        {c.reasons.map((r, i) => <li key={i}>• {r}</li>)}
+      </ul>
     </div>
   );
 }

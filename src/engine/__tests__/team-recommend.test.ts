@@ -1,0 +1,100 @@
+import { describe, expect, it } from 'vitest';
+import {
+  buildProvenTeams,
+  buildAroundCore,
+  improveCurrentTeam,
+  evidenceLabelText,
+} from '@/engine/team-recommend';
+import type { PokemonUsage, UsageRow } from '@/types/usage';
+
+function usage(name: string, teammates: string[]): PokemonUsage {
+  const rows: UsageRow[] = teammates.map((t, i) => ({
+    category: 'teammate',
+    rank: i + 1,
+    name: t,
+    percentage: null,
+  }));
+  return {
+    key: `${name}|Doubles|M5`,
+    showdownId: name.toLowerCase(),
+    displayName: name,
+    format: 'Doubles',
+    season: 'M5',
+    rows,
+    provenance: {
+      source: 'champions-battle-data',
+      attribution: 't',
+      sourceUrl: 't',
+      format: 'Doubles',
+      season: 'M5',
+      retrievedAt: new Date().toISOString(),
+      transformVersion: 1,
+    },
+  };
+}
+
+// A small connected meta: Incineroar <-> Rillaboom <-> Flutter Mane etc.
+const records = [
+  usage('Incineroar', ['Rillaboom', 'Flutter Mane', 'Amoonguss', 'Urshifu', 'Torkoal']),
+  usage('Rillaboom', ['Incineroar', 'Flutter Mane', 'Urshifu', 'Amoonguss', 'Tornadus']),
+  usage('Flutter Mane', ['Incineroar', 'Rillaboom', 'Chi-Yu', 'Landorus', 'Amoonguss']),
+  usage('Amoonguss', ['Incineroar', 'Rillaboom', 'Flutter Mane', 'Kingambit', 'Urshifu']),
+  usage('Urshifu', ['Incineroar', 'Rillaboom', 'Amoonguss', 'Flutter Mane', 'Whimsicott']),
+];
+
+describe('buildProvenTeams', () => {
+  it('generates teams seeded from popular Pokémon', () => {
+    const teams = buildProvenTeams(records, 2);
+    expect(teams.length).toBeGreaterThanOrEqual(1);
+    expect(teams[0].species.length).toBeGreaterThanOrEqual(4);
+    expect(teams[0].reasons.some((r) => /co-occurrence|teammate/i.test(r))).toBe(true);
+  });
+
+  it('returns empty for no data', () => {
+    expect(buildProvenTeams([], 3)).toEqual([]);
+  });
+
+  it('is deterministic', () => {
+    const a = buildProvenTeams(records, 2);
+    const b = buildProvenTeams(records, 2);
+    expect(a.map((t) => t.species.join(','))).toEqual(b.map((t) => t.species.join(',')));
+  });
+});
+
+describe('buildAroundCore', () => {
+  it('locks the core and fills from teammates', () => {
+    const result = buildAroundCore(['Incineroar', 'Rillaboom'], records);
+    expect(result).not.toBeNull();
+    expect(result!.locked).toContain('incineroar');
+    expect(result!.locked).toContain('rillaboom');
+    // Core is included in the final species list.
+    expect(result!.species).toContain('incineroar');
+    expect(result!.species).toContain('rillaboom');
+  });
+
+  it('flags insufficient data for an unknown core', () => {
+    const result = buildAroundCore(['MadeUpMon'], records);
+    expect(result!.evidence).toBe('insufficient-data');
+  });
+});
+
+describe('improveCurrentTeam', () => {
+  it('suggests swapping a low-synergy member for a common teammate', () => {
+    // A team where 'Magikarp' has no usage synergy with the rest.
+    const suggestions = improveCurrentTeam(
+      ['Incineroar', 'Rillaboom', 'Magikarp'],
+      records,
+      2,
+    );
+    expect(suggestions.length).toBeGreaterThanOrEqual(1);
+    // It should propose replacing the weak link (Magikarp) first.
+    expect(suggestions[0].replaceName.toLowerCase()).toBe('magikarp');
+  });
+});
+
+describe('evidenceLabelText', () => {
+  it('maps labels to human text', () => {
+    expect(evidenceLabelText('strong-evidence')).toBe('Strong evidence');
+    expect(evidenceLabelText('insufficient-data')).toBe('Insufficient data');
+  });
+});
