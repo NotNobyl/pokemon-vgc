@@ -17,6 +17,7 @@
 
 import type { BaseStats, Nature } from '@/types/pokemon';
 import { calcBaseSpeed } from './speed-calc';
+import { championsSpeed, type StatPointSpread } from './champions-stat';
 import { checkRoleCoverage, type RoleCoverage } from './synergy-analyzer';
 import { DEFAULT_EVS, DEFAULT_IVS } from '@/types/team';
 
@@ -25,6 +26,9 @@ export interface AnalyzableMember {
   baseStats: BaseStats;
   moves: string[];
   ability: string;
+  /** Optional real Champions spread — enables EXACT speed instead of a proxy. */
+  statPoints?: StatPointSpread;
+  statAlignment?: Nature;
 }
 
 export type SpeedClass = 'fast' | 'mid' | 'slow';
@@ -40,7 +44,10 @@ export interface SpeedProfile {
   speedRedundancy: boolean;
   /** Whether a speed-control plan is present given the archetype. */
   hasSpeedControlPlan: boolean;
-  approximate: true;
+  /** True when at least one member's speed came from a real Champions spread. */
+  exact: boolean;
+  /** True when speeds are proxy estimates (no real spread available). */
+  approximate: boolean;
 }
 
 export interface CoreAnalysis {
@@ -94,9 +101,19 @@ export function analyzeCore(members: AnalyzableMember[]): CoreAnalysis {
     roles.hasWeatherSetter,
   ].filter(Boolean).length;
 
-  // Speed profile.
+  // Speed profile. Use EXACT Champions speed when a real spread is supplied;
+  // otherwise fall back to a max-invested proxy (flagged approximate).
+  let anyExact = false;
+  let anyApprox = false;
   const memberSpeeds = members.map((m) => {
-    const approxSpeed = approxMaxSpeed(m.baseStats);
+    let approxSpeed: number;
+    if (m.statPoints && m.statAlignment) {
+      approxSpeed = championsSpeed(m.baseStats.speed, m.statPoints.speed, m.statAlignment);
+      anyExact = true;
+    } else {
+      approxSpeed = approxMaxSpeed(m.baseStats);
+      anyApprox = true;
+    }
     return { name: m.name, approxSpeed, speedClass: classifySpeed(approxSpeed) };
   });
   const fastCount = memberSpeeds.filter((m) => m.speedClass === 'fast').length;
@@ -129,7 +146,8 @@ export function analyzeCore(members: AnalyzableMember[]): CoreAnalysis {
     archetype,
     speedRedundancy,
     hasSpeedControlPlan,
-    approximate: true,
+    exact: anyExact && !anyApprox,
+    approximate: anyApprox,
   };
 
   // Issues + synergies.

@@ -130,23 +130,45 @@ export default function LabPage() {
     [popularity],
   );
 
+  // Enrich resolved members with real Champions Stat Point spread + alignment
+  // from usage (top spread), so the score model computes EXACT speed.
+  const enrich = useMemo(() => {
+    const byCanon = new Map(usageRecords.map((r) => [canon(r.displayName), r]));
+    return (members: ScorableMember[]): ScorableMember[] =>
+      members.map((m) => {
+        const u = byCanon.get(canon(m.name));
+        if (!u) return m;
+        const spRow = u.rows
+          .filter((r) => r.category === 'stat_points' && r.statPoints)
+          .sort((a, b) => a.rank - b.rank)[0];
+        const alignRow = u.rows
+          .filter((r) => r.category === 'stat_alignment' && r.name)
+          .sort((a, b) => a.rank - b.rank)[0];
+        return {
+          ...m,
+          statPoints: spRow?.statPoints,
+          statAlignment: alignRow ? (alignRow.name.toLowerCase() as ScorableMember['statAlignment']) : undefined,
+        };
+      });
+  }, [usageRecords]);
+
   const selectedTeam: Team | undefined = teams.find((t) => t.id === teamId);
   const selectedScore: TeamScore | null = useMemo(() => {
     if (!selectedTeam) return null;
     const members = scorable.get(selectedTeam.id);
     if (!members || members.length === 0) return null;
-    return scoreTeam(members, undefined, metaLookup);
-  }, [selectedTeam, scorable, metaLookup]);
+    return scoreTeam(enrich(members), undefined, metaLookup);
+  }, [selectedTeam, scorable, metaLookup, enrich]);
 
   const ranked: ScoredTeam[] = useMemo(() => {
     return rankTeams(
       teams
         .filter((t) => (scorable.get(t.id)?.length ?? 0) > 0)
-        .map((t) => ({ id: t.id, name: t.name, members: scorable.get(t.id)! })),
+        .map((t) => ({ id: t.id, name: t.name, members: enrich(scorable.get(t.id)!) })),
       undefined,
       metaLookup,
     );
-  }, [teams, scorable, metaLookup]);
+  }, [teams, scorable, metaLookup, enrich]);
 
   const comparison = useMemo(() => {
     if (!teamId || !compareId || teamId === compareId) return null;
@@ -237,13 +259,21 @@ export default function LabPage() {
       return ab?.name ?? '';
     };
     const baseStatsByCanon = new Map(dexFull.map((d) => [canon(d.name), d.baseStats]));
+    const spByCanon = (name: string) => {
+      const u = usageByCanon.get(canon(name));
+      const sp = u?.rows.filter((r) => r.category === 'stat_points' && r.statPoints).sort((a, b) => a.rank - b.rank)[0];
+      const al = u?.rows.filter((r) => r.category === 'stat_alignment' && r.name).sort((a, b) => a.rank - b.rank)[0];
+      return { statPoints: sp?.statPoints, statAlignment: al ? (al.name.toLowerCase() as never) : undefined };
+    };
     const coherenceOf = (aName: string, bName: string): number | null => {
       const aStats = baseStatsByCanon.get(canon(aName));
       const bStats = baseStatsByCanon.get(canon(bName));
       if (!aStats || !bStats) return null;
+      const aSp = spByCanon(aName);
+      const bSp = spByCanon(bName);
       const core = analyzeCore([
-        { name: aName, baseStats: aStats, moves: commonMoves(aName), ability: commonAbility(aName) },
-        { name: bName, baseStats: bStats, moves: commonMoves(bName), ability: commonAbility(bName) },
+        { name: aName, baseStats: aStats, moves: commonMoves(aName), ability: commonAbility(aName), ...aSp },
+        { name: bName, baseStats: bStats, moves: commonMoves(bName), ability: commonAbility(bName), ...bSp },
       ]);
       return core.coherence;
     };
