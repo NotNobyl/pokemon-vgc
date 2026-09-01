@@ -17,9 +17,16 @@ import {
   type ImprovementSuggestion,
 } from '@/engine/team-recommend';
 import type { PokemonUsage } from '@/types/usage';
+import {
+  usageResidualFindings,
+  coverageGapFindings,
+  discoveryLabelText,
+  type DiscoveryFinding,
+  type CoverageCandidate,
+} from '@/engine/off-meta';
 
 type Mode = 'breakdown' | 'compare' | 'recommend';
-type RecMode = 'proven' | 'core' | 'improve';
+type RecMode = 'proven' | 'core' | 'improve' | 'discover';
 
 /**
  * Team Intelligence Lab — Slice 3a.
@@ -37,6 +44,7 @@ export default function LabPage() {
   const [scorable, setScorable] = useState<Map<string, ScorableMember[]>>(new Map());
   const [popularity, setPopularity] = useState<Map<string, number>>(new Map());
   const [usageRecords, setUsageRecords] = useState<PokemonUsage[]>([]);
+  const [dexTypes, setDexTypes] = useState<{ name: string; types: PokemonType[] }[]>([]);
   const [recMode, setRecMode] = useState<RecMode>('proven');
   const [coreInput, setCoreInput] = useState('');
   const [ready, setReady] = useState(false);
@@ -74,6 +82,9 @@ export default function LabPage() {
       }
       const allPokemon = await getAllPokemon();
       const byId = new Map(allPokemon.map((p) => [p.id, p]));
+      if (!cancelled) {
+        setDexTypes(allPokemon.map((p) => ({ name: p.name, types: p.types as PokemonType[] })));
+      }
       const result = new Map<string, ScorableMember[]>();
 
       for (const team of teams) {
@@ -153,6 +164,28 @@ export default function LabPage() {
     return improveCurrentTeam(members.map((m) => m.name), usageRecords, 3);
   }, [recMode, selectedTeam, scorable, usageRecords]);
 
+  const residualFindings: DiscoveryFinding[] = useMemo(
+    () => (recMode === 'discover' ? usageResidualFindings(usageRecords, 6) : []),
+    [recMode, usageRecords],
+  );
+
+  const coverageFindings: CoverageCandidate[] = useMemo(() => {
+    if (recMode !== 'discover' || dexTypes.length === 0) return [];
+    // Top threats = most popular species (by co-occurrence) joined with types.
+    const byName = new Map(dexTypes.map((d) => [d.name.toLowerCase().replace(/[^a-z0-9]/g, ''), d]));
+    const topThreats = [...popularity.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([key]) => byName.get(key))
+      .filter((d): d is { name: string; types: PokemonType[] } => !!d);
+    return coverageGapFindings(
+      topThreats,
+      dexTypes,
+      (key) => popularity.get(key) ?? null,
+      6,
+    );
+  }, [recMode, dexTypes, popularity]);
+
   if (!ready) return <div className="text-gray-400">Loading…</div>;
 
   return (
@@ -213,6 +246,8 @@ export default function LabPage() {
               provenTeams={provenTeams}
               coreTeam={coreTeam}
               improvements={improvements}
+              residualFindings={residualFindings}
+              coverageFindings={coverageFindings}
               hasUsage={usageRecords.length > 0}
               hasSelectedTeam={!!selectedTeam}
             />
@@ -282,6 +317,8 @@ function RecommendPanel({
   provenTeams,
   coreTeam,
   improvements,
+  residualFindings,
+  coverageFindings,
   hasUsage,
   hasSelectedTeam,
 }: {
@@ -292,6 +329,8 @@ function RecommendPanel({
   provenTeams: TeamCandidate[];
   coreTeam: TeamCandidate | null;
   improvements: ImprovementSuggestion[];
+  residualFindings: DiscoveryFinding[];
+  coverageFindings: CoverageCandidate[];
   hasUsage: boolean;
   hasSelectedTeam: boolean;
 }) {
@@ -302,6 +341,7 @@ function RecommendPanel({
           ['proven', 'Best Proven'],
           ['core', 'Build Around Core'],
           ['improve', 'Improve Current'],
+          ['discover', 'Off-Meta Discover'],
         ] as [RecMode, string][]).map(([m, label]) => (
           <button
             key={m}
@@ -367,6 +407,62 @@ function RecommendPanel({
             Heuristic from usage co-occurrence. Test a change over several games
             before committing.
           </p>
+        </div>
+      )}
+
+      {recMode === 'discover' && (
+        <div className="space-y-3">
+          <p className="text-xs text-gray-500">
+            Underused Pokémon that look promising by a measurable signal — not
+            random low-usage picks. Nothing here is "optimal" or "broken"; treat
+            each as an experiment and run the suggested test games.
+          </p>
+
+          {residualFindings.length > 0 && (
+            <div className="card">
+              <h3 className="font-semibold mb-1">Underused-relative-to-fit</h3>
+              <ul className="space-y-2">
+                {residualFindings.map((f) => (
+                  <li key={f.key} className="text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="capitalize font-medium flex-1">{f.displayName}</span>
+                      <span className="text-[11px] text-gray-400">{discoveryLabelText(f.label)}</span>
+                      <span className="text-[11px] text-gray-500">test ~{f.suggestedTestMatches} games</span>
+                    </div>
+                    <div className="text-xs text-gray-400">{f.reasons[0]}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {coverageFindings.length > 0 && (
+            <div className="card">
+              <h3 className="font-semibold mb-1">Meta coverage gaps</h3>
+              <p className="text-xs text-gray-500 mb-2">
+                Low-usage Pokémon that resist &amp; threaten multiple current top threats.
+              </p>
+              <ul className="space-y-2">
+                {coverageFindings.map((f) => (
+                  <li key={f.key} className="text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="capitalize font-medium flex-1">{f.displayName}</span>
+                      <span className="text-[11px] text-gray-400">{discoveryLabelText(f.label)}</span>
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      Answers: <span className="capitalize">{f.answers.join(', ')}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {hasUsage && residualFindings.length === 0 && coverageFindings.length === 0 && (
+            <div className="card text-sm text-gray-400">
+              No clear off-meta opportunities from the current cached data.
+            </div>
+          )}
         </div>
       )}
     </div>
