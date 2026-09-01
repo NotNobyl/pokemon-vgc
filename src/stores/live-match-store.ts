@@ -20,6 +20,7 @@ interface LiveMatchState {
   setMyBring4: (memberIds: string[]) => Promise<void>;
   setPhase: (phase: LiveMatch['phase']) => Promise<void>;
   revealOpponentInfo: (name: string, info: Partial<RevealedInfo>) => Promise<void>;
+  toggleBrought: (name: string) => Promise<void>;
   addTurn: (turn: LiveTurn) => Promise<void>;
   updateTurn: (turnNumber: number, updates: Partial<LiveTurn>) => Promise<void>;
   finish: (result: 'win' | 'loss') => Promise<LiveMatch | null>;
@@ -114,6 +115,15 @@ export const useLiveMatchStore = create<LiveMatchState>()((set, get) => ({
             },
           }
         : o,
+    );
+    set({ active: await persist({ ...m, opponents }) });
+  },
+
+  toggleBrought: async (name) => {
+    const m = get().active;
+    if (!m) return;
+    const opponents = m.opponents.map((o) =>
+      o.name === name ? { ...o, brought: !o.brought } : o,
     );
     set({ active: await persist({ ...m, opponents }) });
   },
