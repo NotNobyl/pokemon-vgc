@@ -3,15 +3,17 @@ import { useTeamStore } from '@/stores/team-store';
 import TeamGuide from '../components/TeamGuide';
 import BattleLogForm from '../components/BattleLogForm';
 import PatternTracker from '../components/PatternTracker';
+import PersonalStats from '../components/PersonalStats';
 import PreBattleChecklist from '../components/PreBattleChecklist';
 import Glossary from '../components/Glossary';
 
-type Tab = 'guide' | 'log' | 'patterns' | 'checklist' | 'glossary';
+type Tab = 'guide' | 'log' | 'patterns' | 'stats' | 'checklist' | 'glossary';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'guide', label: 'Team Guide', icon: '📖' },
   { id: 'log', label: 'Battle Log', icon: '📝' },
   { id: 'patterns', label: 'Patterns', icon: '📊' },
+  { id: 'stats', label: 'My Stats', icon: '📈' },
   { id: 'checklist', label: 'Checklist', icon: '☑️' },
   { id: 'glossary', label: 'Glossary', icon: '📚' },
 ];
@@ -95,6 +97,8 @@ export default function GuidesPage() {
         {activeTab === 'patterns' && (
           <PatternTracker teamId={selectedTeamId || undefined} />
         )}
+
+        {activeTab === 'stats' && <PersonalStats />}
 
         {activeTab === 'checklist' && <PreBattleChecklist />}
 
