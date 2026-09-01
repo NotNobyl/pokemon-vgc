@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PokemonType } from '@/types/pokemon';
 import type { Team } from '@/types/team';
 import { useTeamStore } from '@/stores/team-store';
@@ -11,7 +11,7 @@ import { rankTeams, compareScoredTeams, type ScoredTeam } from '@/engine/team-co
 import {
   buildProvenTeams,
   buildAroundCore,
-  improveCurrentTeam,
+  improveCurrentTeamScored,
   evidenceLabelText,
   type TeamCandidate,
   type ImprovementSuggestion,
@@ -189,11 +189,61 @@ export default function LabPage() {
     return buildAroundCore(core, usageRecords);
   }, [recMode, coreInput, usageRecords]);
 
+  // Score an arbitrary set of species names (for score-aware Improve Current).
+  const scoreByNames = useCallback(
+    (names: string[]) => {
+      if (dexFull.length === 0) return null;
+      const typesByCanon = new Map(dexTypes.map((d) => [canon(d.name), d.types]));
+      const statsByCanon = new Map(dexFull.map((d) => [canon(d.name), d.baseStats]));
+      const usageByCanon = new Map(usageRecords.map((r) => [canon(r.displayName), r]));
+      const members: ScorableMember[] = [];
+      for (const name of names) {
+        const key = canon(name);
+        const types = typesByCanon.get(key);
+        const baseStats = statsByCanon.get(key);
+        if (!types || !baseStats) continue;
+        const u = usageByCanon.get(key);
+        const rows = (cat: string) =>
+          u ? u.rows.filter((r) => r.category === cat && r.name).sort((a, b) => a.rank - b.rank) : [];
+        const moveRows = rows('move').slice(0, 4);
+        const spRow = u?.rows.filter((r) => r.category === 'stat_points' && r.statPoints).sort((a, b) => a.rank - b.rank)[0];
+        const alignRow = rows('stat_alignment')[0];
+        members.push({
+          name,
+          types,
+          moves: moveRows.map((r) => r.name),
+          moveTypes: [],
+          ability: rows('ability')[0]?.name ?? '',
+          item: rows('held_item')[0]?.name ?? '',
+          baseStats,
+          statPoints: spRow?.statPoints,
+          statAlignment: alignRow ? (alignRow.name.toLowerCase() as ScorableMember['statAlignment']) : undefined,
+        });
+      }
+      if (members.length === 0) return null;
+      const s = scoreTeam(members, undefined, metaLookup);
+      return { total: s.total, categories: s.categories.map((c) => ({ label: c.label, score: c.score })) };
+    },
+    [dexTypes, dexFull, usageRecords, metaLookup],
+  );
+
   const improvements: ImprovementSuggestion[] = useMemo(() => {
     if (recMode !== 'improve' || !selectedTeam) return [];
     const members = scorable.get(selectedTeam.id) ?? [];
-    return improveCurrentTeam(members.map((m) => m.name), usageRecords, 3);
-  }, [recMode, selectedTeam, scorable, usageRecords]);
+    // Candidate pool: the most popular meta mons.
+    const pool = [...popularity.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 40)
+      .map(([key]) => dexTypes.find((d) => canon(d.name) === key)?.name)
+      .filter((n): n is string => !!n);
+    return improveCurrentTeamScored(
+      members.map((m) => m.name),
+      usageRecords,
+      scoreByNames,
+      pool,
+      3,
+    );
+  }, [recMode, selectedTeam, scorable, usageRecords, popularity, dexTypes, scoreByNames]);
 
   const residualFindings: DiscoveryFinding[] = useMemo(
     () => (recMode === 'discover' ? usageResidualFindings(usageRecords, 6) : []),
@@ -486,23 +536,31 @@ function RecommendPanel({
       {recMode === 'improve' && (
         <div className="card">
           <h3 className="font-semibold mb-1">Smallest helpful changes</h3>
+          <p className="text-xs text-gray-500 mb-2">
+            Only swaps that actually <strong>raise your analyzer score</strong>
+            are shown. If nothing appears, your team is already well-optimized —
+            it won't invent a change.
+          </p>
           {!hasSelectedTeam ? (
             <p className="text-sm text-gray-400">Select a team above to get suggestions.</p>
           ) : improvements.length === 0 ? (
-            <p className="text-sm text-gray-400">
-              No clear single-swap suggestion from usage data.
+            <p className="text-sm text-green-400">
+              ✓ No single swap improves this team's score — it's already
+              well-optimized by the analyzer.
             </p>
           ) : (
             <ul className="space-y-2">
               {improvements.map((s, i) => (
                 <li key={i} className="text-sm">
-                  <div className="capitalize">
-                    <span className="text-red-300">− {s.replaceName}</span>{' '}
-                    <span className="text-gray-500">→</span>{' '}
+                  <div className="capitalize flex items-center gap-2">
+                    <span className="text-red-300">− {s.replaceName}</span>
+                    <span className="text-gray-500">→</span>
                     <span className="text-green-300">+ {s.withName}</span>
-                    <span className="ml-2 text-[11px] text-gray-500">
-                      {evidenceLabelText(s.evidence)}
-                    </span>
+                    {s.scoreBefore != null && s.scoreAfter != null && (
+                      <span className="ml-auto text-[11px] text-gray-300">
+                        {s.scoreBefore} → <span className="text-green-400 font-medium">{s.scoreAfter}</span>
+                      </span>
+                    )}
                   </div>
                   <div className="text-xs text-gray-400">{s.reason}</div>
                 </li>
@@ -510,7 +568,7 @@ function RecommendPanel({
             </ul>
           )}
           <p className="text-xs text-gray-500 mt-2">
-            Heuristic from usage co-occurrence. Test a change over several games
+            Score-verified suggestions. Still test a change over several games
             before committing.
           </p>
         </div>

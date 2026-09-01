@@ -3,6 +3,7 @@ import {
   buildProvenTeams,
   buildAroundCore,
   improveCurrentTeam,
+  improveCurrentTeamScored,
   evidenceLabelText,
   generateDiverseTeams,
 } from '@/engine/team-recommend';
@@ -90,6 +91,40 @@ describe('improveCurrentTeam', () => {
     expect(suggestions.length).toBeGreaterThanOrEqual(1);
     // It should propose replacing the weak link (Magikarp) first.
     expect(suggestions[0].replaceName.toLowerCase()).toBe('magikarp');
+  });
+});
+
+describe('improveCurrentTeamScored', () => {
+  it('only suggests swaps that RAISE the analyzer score', () => {
+    // Scorer: team is better the more of [good1, good2, good3] it contains.
+    const good = new Set(['good1', 'good2', 'good3']);
+    const scorer = (names: string[]) => {
+      const total = 50 + names.filter((n) => good.has(n.toLowerCase())).length * 15;
+      return { total, categories: [{ label: 'Coverage', score: total }] };
+    };
+    const suggestions = improveCurrentTeamScored(
+      ['good1', 'good2', 'Filler'],
+      records,
+      scorer,
+      ['good3', 'Junk'], // good3 improves, Junk does not
+      3,
+    );
+    // Should suggest replacing Filler with good3 (raises score), never propose Junk.
+    expect(suggestions.length).toBe(1);
+    expect(suggestions[0].withName).toBe('good3');
+    expect(suggestions[0].scoreAfter!).toBeGreaterThan(suggestions[0].scoreBefore!);
+  });
+
+  it('returns nothing when no swap improves the team (already optimal)', () => {
+    const scorer = () => ({ total: 90, categories: [{ label: 'X', score: 90 }] });
+    const suggestions = improveCurrentTeamScored(
+      ['A', 'B', 'C'],
+      records,
+      scorer,
+      ['D', 'E'],
+      3,
+    );
+    expect(suggestions).toEqual([]);
   });
 });
 

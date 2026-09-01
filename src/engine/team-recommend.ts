@@ -186,12 +186,97 @@ export interface ImprovementSuggestion {
   withName: string;
   reason: string;
   evidence: EvidenceLabel;
+  /** Team score before and after the swap (when score-aware). */
+  scoreBefore?: number;
+  scoreAfter?: number;
+  /** Category improvements the swap produced, for the explanation. */
+  improvedCategories?: string[];
 }
 
 /**
- * Improve Current Team: suggest the smallest helpful single swaps. Looks for
- * team members that are NOT common teammates of the rest, and proposes the most
- * common teammate of the retained core that isn't already on the team.
+ * Score-aware "Improve Current Team": for each member, try replacing it with
+ * popular candidate teammates, re-score the WHOLE team, and only return swaps
+ * that ACTUALLY raise the analyzer score. Returns the biggest genuine
+ * improvements first, or an empty list if the team is already well-optimized.
+ *
+ * @param scoreTeamByNames scores a team given its member display names; returns
+ *   { total, categories: {label, score}[] } or null. Supplied by the caller so
+ *   this engine stays pure/IO-free.
+ * @param candidatePool species names to consider as replacements (e.g. the
+ *   meta pool). Falls back to common teammates when omitted.
+ */
+export function improveCurrentTeamScored(
+  currentDisplayNames: string[],
+  records: PokemonUsage[],
+  scoreTeamByNames: (names: string[]) => { total: number; categories: { label: string; score: number }[] } | null,
+  candidatePool?: string[],
+  maxSuggestions = 3,
+): ImprovementSuggestion[] {
+  if (currentDisplayNames.length < 2 || records.length === 0) return [];
+  const { displayByKey, teammatesByKey } = buildTeammateIndex(records);
+
+  const base = scoreTeamByNames(currentDisplayNames);
+  if (!base) return [];
+
+  // Candidate replacements: explicit pool, else common teammates of the team.
+  let candidates: string[];
+  if (candidatePool && candidatePool.length > 0) {
+    candidates = candidatePool;
+  } else {
+    const votes = new Map<string, string>();
+    for (const k of currentDisplayNames.map(canonicalize)) {
+      for (const mate of teammatesByKey.get(k) ?? []) {
+        votes.set(canonicalize(mate), displayByKey.get(canonicalize(mate)) ?? mate);
+      }
+    }
+    candidates = [...votes.values()];
+  }
+
+  const teamCanon = new Set(currentDisplayNames.map(canonicalize));
+  const found: ImprovementSuggestion[] = [];
+
+  for (let slot = 0; slot < currentDisplayNames.length; slot++) {
+    const outName = currentDisplayNames[slot];
+    let bestForSlot: ImprovementSuggestion | null = null;
+
+    for (const cand of candidates) {
+      if (teamCanon.has(canonicalize(cand))) continue;
+      const trial = [...currentDisplayNames];
+      trial[slot] = cand;
+      const after = scoreTeamByNames(trial);
+      if (!after) continue;
+      const delta = after.total - base.total;
+      if (delta <= 1) continue; // must be a real improvement (>1 pt)
+
+      // Which categories improved?
+      const beforeByLabel = new Map(base.categories.map((c) => [c.label, c.score]));
+      const improvedCategories = after.categories
+        .filter((c) => (beforeByLabel.get(c.label) ?? 0) + 3 < c.score)
+        .map((c) => c.label);
+
+      if (!bestForSlot || after.total > (bestForSlot.scoreAfter ?? 0)) {
+        bestForSlot = {
+          replaceName: outName,
+          withName: cand,
+          reason: `Swapping ${outName} → ${cand} raises the team's analyzer score from ${base.total.toFixed(0)} to ${after.total.toFixed(0)}${improvedCategories.length ? ` (better ${improvedCategories.join(', ')})` : ''}.`,
+          evidence: 'promising',
+          scoreBefore: Math.round(base.total),
+          scoreAfter: Math.round(after.total),
+          improvedCategories,
+        };
+      }
+    }
+    if (bestForSlot) found.push(bestForSlot);
+  }
+
+  return found
+    .sort((a, b) => (b.scoreAfter ?? 0) - (a.scoreAfter ?? 0))
+    .slice(0, maxSuggestions);
+}
+
+/**
+ * Legacy popularity-only Improve Current (kept for compatibility). Prefer
+ * improveCurrentTeamScored, which only suggests verified score increases.
  */
 export function improveCurrentTeam(
   currentDisplayNames: string[],
