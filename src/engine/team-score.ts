@@ -12,9 +12,10 @@
  * stamped so recommendations remain reproducible/auditable.
  */
 
-import type { PokemonType, BaseStats } from '@/types/pokemon';
+import type { PokemonType, BaseStats, Nature } from '@/types/pokemon';
 import { analyzeSynergy, checkRoleCoverage } from './synergy-analyzer';
 import { analyzeCore, type AnalyzableMember } from './team-analysis';
+import type { StatPointSpread } from './champions-stat';
 import { canonicalize } from '@/data/sources/showdown-mapping';
 
 export const TEAM_SCORE_MODEL_VERSION = 2;
@@ -54,6 +55,9 @@ export interface ScorableMember {
   item: string;
   /** Base stats — enables speed-coherence + anti-synergy analysis. */
   baseStats?: BaseStats;
+  /** Real Champions Stat Point spread + alignment — enables EXACT speed. */
+  statPoints?: StatPointSpread;
+  statAlignment?: Nature;
 }
 
 export interface CategoryScore {
@@ -196,6 +200,8 @@ export function scoreTeam(
       baseStats: m.baseStats!,
       moves: m.moves,
       ability: m.ability,
+      statPoints: m.statPoints,
+      statAlignment: m.statAlignment,
     }));
     const core = analyzeCore(analyzable);
     speedCoherence = clamp100(core.coherence * 100);
@@ -203,7 +209,9 @@ export function scoreTeam(
     for (const s of core.synergies) strengths.push(s);
     for (const iss of core.issues) weaknesses.push(iss);
     evidence.push(
-      'Speed coherence + anti-synergy use base stats and common spreads — speed tiers are APPROXIMATE (Champions Stat Points not fully modeled).',
+      core.speed.exact
+        ? 'Speed coherence uses EXACT Champions stats from real Stat Point spreads.'
+        : 'Speed coherence uses base stats + a max-invested proxy (approximate — sync usage for exact spreads).',
     );
   } else {
     evidence.push('Speed/anti-synergy analysis skipped (missing base stats for some members).');

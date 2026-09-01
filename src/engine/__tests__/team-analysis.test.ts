@@ -71,8 +71,24 @@ describe('analyzeCore', () => {
     expect(a.synergies.some((s) => /Redirection/i.test(s))).toBe(true);
   });
 
-  it('always marks speed as approximate', () => {
+  it('marks speed as approximate when no real spread is given', () => {
     const a = analyzeCore([mk('X', 100, [])]);
     expect(a.speed.approximate).toBe(true);
+    expect(a.speed.exact).toBe(false);
+  });
+
+  it('uses exact Champions speed when a spread + alignment are supplied', () => {
+    const a = analyzeCore([
+      {
+        name: 'Fast',
+        baseStats: stats(120),
+        moves: [],
+        ability: '',
+        statPoints: { hp: 0, attack: 0, defense: 0, spAttack: 34, spDefense: 0, speed: 32 },
+        statAlignment: 'timid',
+      },
+    ]);
+    expect(a.speed.exact).toBe(true);
+    expect(a.speed.approximate).toBe(false);
   });
 });
