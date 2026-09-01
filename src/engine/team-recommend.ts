@@ -249,3 +249,53 @@ export function evidenceLabelText(e: EvidenceLabel): string {
     case 'insufficient-data': return 'Insufficient data';
   }
 }
+
+/**
+ * Diversified generator for the "Suggest / Refresh" flow. Unlike
+ * buildProvenTeams (which always seeds from the very top), this seeds from a
+ * ROTATING window of popular Pokémon so each refresh surfaces genuinely
+ * different teams. Deterministic for a given `seedOffset`, so results are
+ * reproducible but varied as the offset advances.
+ *
+ * @param seedOffset advance this on each Refresh to get the next batch.
+ * @param count how many distinct teams to return.
+ */
+export function generateDiverseTeams(
+  records: PokemonUsage[],
+  count = 5,
+  seedOffset = 0,
+): TeamCandidate[] {
+  if (records.length === 0) return [];
+  const { displayByKey, teammatesByKey } = buildTeammateIndex(records);
+  const ranking = rankByTeammateCoOccurrence(records);
+  if (ranking.length === 0) return [];
+
+  const candidates: TeamCandidate[] = [];
+  // Rotate the starting seed by offset so Refresh explores new territory,
+  // wrapping around the popularity list.
+  const n = ranking.length;
+  for (let i = 0; i < n && candidates.length < count; i++) {
+    const seedEntry = ranking[(seedOffset + i) % n];
+    const grown = growTeam([seedEntry.key], teammatesByKey, displayByKey);
+    if (grown.species.length < 4) continue;
+
+    // Diversity: skip near-duplicates of already-chosen teams.
+    const dup = candidates.some((c) => {
+      const overlap = c.species.filter((s) => grown.species.includes(s)).length;
+      return overlap >= 4;
+    });
+    if (dup) continue;
+
+    candidates.push({
+      species: grown.species,
+      displayNames: grown.displayNames,
+      locked: [seedEntry.key],
+      evidence: grown.species.length === 6 ? 'strong-evidence' : 'promising',
+      reasons: [
+        `Built around ${seedEntry.displayName} and its most common teammates.`,
+        'Meta support inferred from usage co-occurrence (not win rate).',
+      ],
+    });
+  }
+  return candidates;
+}

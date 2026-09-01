@@ -7,8 +7,9 @@ import { getAllPokemon } from '@/db/pokemon-cache';
 import { getAllUsageForFormat } from '@/db/usage-cache';
 import { CURRENT_FORMAT, useUsageStore } from '@/stores/usage-store';
 import { useTeamStore } from '@/stores/team-store';
-import { buildProvenTeams } from '@/engine/team-recommend';
+import { buildProvenTeams, generateDiverseTeams } from '@/engine/team-recommend';
 import { assembleMetaTeam, type AssembledMetaTeam } from '@/engine/meta-team';
+import { scoreTeam, type ScorableMember, type TeamScore } from '@/engine/team-score';
 import {
   coverageGapFindings,
   usageResidualFindings,
@@ -28,10 +29,11 @@ export default function MetaTeamsView() {
 
   const [records, setRecords] = useState<PokemonUsage[]>([]);
   const [dex, setDex] = useState<
-    { name: string; id: number; types: PokemonType[] }[]
+    { name: string; id: number; types: PokemonType[]; baseStats: import('@/types/pokemon').BaseStats }[]
   >([]);
   const [ready, setReady] = useState(false);
   const [savedName, setSavedName] = useState<string | null>(null);
+  const [refreshIndex, setRefreshIndex] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,7 +44,14 @@ export default function MetaTeamsView() {
       ]);
       if (cancelled) return;
       setRecords(recs);
-      setDex(allDex.map((p) => ({ name: p.name, id: p.id, types: p.types as PokemonType[] })));
+      setDex(
+        allDex.map((p) => ({
+          name: p.name,
+          id: p.id,
+          types: p.types as PokemonType[],
+          baseStats: p.baseStats,
+        })),
+      );
       setReady(true);
     }
     void load();
@@ -56,6 +65,74 @@ export default function MetaTeamsView() {
     for (const d of dex) m.set(canonicalize(d.name), d.id);
     return m;
   }, [dex]);
+
+  // ---- Suggest / Refresh: generate diverse teams, score each with the full
+  // analyzer, and surface the best-scoring one. Refresh advances the seed. ----
+  const usageByCanon = useMemo(
+    () => new Map(records.map((r) => [canonicalize(r.displayName), r])),
+    [records],
+  );
+  const dexByCanon = useMemo(
+    () => new Map(dex.map((d) => [canonicalize(d.name), d])),
+    [dex],
+  );
+
+  const suggestion = useMemo(() => {
+    if (records.length === 0 || dex.length === 0) return null;
+    // Generate a small pool at this refresh offset, score each, pick the best.
+    const pool = generateDiverseTeams(records, 4, refreshIndex);
+    if (pool.length === 0) return null;
+
+    const scoreCandidate = (displayNames: string[]): TeamScore | null => {
+      const members: ScorableMember[] = [];
+      for (const name of displayNames) {
+        const d = dexByCanon.get(canonicalize(name));
+        if (!d) continue;
+        const u = usageByCanon.get(canonicalize(name));
+        const moveRows = u
+          ? u.rows.filter((r) => r.category === 'move' && r.name).sort((a, b) => a.rank - b.rank).slice(0, 4)
+          : [];
+        const abilityRow = u?.rows.filter((r) => r.category === 'ability').sort((a, b) => a.rank - b.rank)[0];
+        const itemRow = u?.rows.filter((r) => r.category === 'held_item').sort((a, b) => a.rank - b.rank)[0];
+        const spRow = u?.rows.filter((r) => r.category === 'stat_points' && r.statPoints).sort((a, b) => a.rank - b.rank)[0];
+        const alignRow = u?.rows.filter((r) => r.category === 'stat_alignment' && r.name).sort((a, b) => a.rank - b.rank)[0];
+        members.push({
+          name: d.name,
+          types: d.types,
+          moves: moveRows.map((r) => r.name),
+          // moveTypes unknown here without move records; leave empty (coverage
+          // still uses types). Kept simple; score focuses on structure+speed.
+          moveTypes: [],
+          ability: abilityRow?.name ?? '',
+          item: itemRow?.name ?? '',
+          baseStats: d.baseStats,
+          statPoints: spRow?.statPoints,
+          statAlignment: alignRow ? (alignRow.name.toLowerCase() as ScorableMember['statAlignment']) : undefined,
+        });
+      }
+      if (members.length === 0) return null;
+      return scoreTeam(members, undefined, {
+        popularity: (key) => {
+          const u = usageByCanon.get(key);
+          return u ? 0.7 : null; // present in usage => supported
+        },
+      });
+    };
+
+    const scored = pool
+      .map((c) => ({ candidate: c, score: scoreCandidate(c.displayNames) }))
+      .filter((x): x is { candidate: typeof pool[number]; score: TeamScore } => !!x.score)
+      .sort((a, b) => b.score.total - a.score.total);
+
+    if (scored.length === 0) return null;
+    const best = scored[0];
+    const assembled = assembleMetaTeam(
+      `Suggested Team`,
+      best.candidate.displayNames.map((n) => ({ displayName: n, showdownId: canonicalize(n) })),
+      records,
+    );
+    return { assembled, score: best.score };
+  }, [records, dex, dexByCanon, usageByCanon, refreshIndex]);
 
   const teams: AssembledMetaTeam[] = useMemo(() => {
     if (records.length === 0) return [];
@@ -128,6 +205,56 @@ export default function MetaTeamsView() {
             their most common sets. Percentages are observed usage — there are no
             win rates in the source, so none are claimed. Save one and refine it.
           </p>
+
+          {/* Suggest / Refresh: best-scoring generated team */}
+          {suggestion && (
+            <div className="card border-blue-700 bg-blue-900/10 space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">✨ Suggested team</h3>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">
+                    Analyzer score{' '}
+                    <span className="font-bold">{suggestion.score.total.toFixed(0)}</span>/100
+                  </span>
+                  <button
+                    className="btn-secondary text-sm"
+                    onClick={() => setRefreshIndex((i) => i + 1)}
+                    title="Show a different high-scoring team"
+                  >
+                    🔄 Refresh
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">
+                Generated from usage, scored by the full analyzer (types, roles,
+                exact speed, anti-synergy). Don't like it? Refresh for a different
+                high-scoring option.
+              </p>
+
+              <div className="flex flex-wrap gap-1">
+                {suggestion.assembled.sets.map((s, si) => (
+                  <span key={si} className="px-2 py-0.5 rounded text-xs bg-gray-700 capitalize">
+                    {s.displayName}
+                  </span>
+                ))}
+              </div>
+
+              {suggestion.score.strengths.length > 0 && (
+                <ul className="text-xs text-green-300 space-y-0.5">
+                  {suggestion.score.strengths.slice(0, 3).map((s, i) => <li key={i}>+ {s}</li>)}
+                </ul>
+              )}
+              {suggestion.score.weaknesses.length > 0 && (
+                <ul className="text-xs text-red-300 space-y-0.5">
+                  {suggestion.score.weaknesses.slice(0, 2).map((w, i) => <li key={i}>− {w}</li>)}
+                </ul>
+              )}
+
+              <button className="btn-primary text-sm" onClick={() => void handleSave(suggestion.assembled)}>
+                Save this team
+              </button>
+            </div>
+          )}
 
           {savedName && (
             <div className="card border-green-700 bg-green-900/20 text-green-300 text-sm">
