@@ -9,7 +9,7 @@
  */
 
 import type { Team, TeamMember } from '@/types/team';
-import { TEAM_SCHEMA_VERSION, DEFAULT_EVS, DEFAULT_IVS } from '@/types/team';
+import { TEAM_SCHEMA_VERSION, DEFAULT_EVS, DEFAULT_IVS, evsToStatPoints } from '@/types/team';
 
 export interface MigrationResult {
   /** Valid, current-schema teams ready to use. */
@@ -27,6 +27,8 @@ function migrateMember(raw: unknown): TeamMember | null {
   if (!isObject(raw)) return null;
   const pokemonId = raw.pokemonId;
   if (typeof pokemonId !== 'number') return null; // can't reference a species
+  const evs = isObject(raw.evs) ? ({ ...DEFAULT_EVS, ...raw.evs } as TeamMember['evs']) : { ...DEFAULT_EVS };
+  const nature = (typeof raw.nature === 'string' ? raw.nature : 'hardy') as TeamMember['nature'];
   return {
     id: typeof raw.id === 'string' ? raw.id : crypto.randomUUID(),
     pokemonId,
@@ -35,11 +37,17 @@ function migrateMember(raw: unknown): TeamMember | null {
     item: typeof raw.item === 'string' ? raw.item : '',
     teraType: raw.teraType as TeamMember['teraType'],
     moves: Array.isArray(raw.moves) ? (raw.moves.filter((m) => typeof m === 'string') as string[]) : [],
-    evs: isObject(raw.evs) ? ({ ...DEFAULT_EVS, ...raw.evs } as TeamMember['evs']) : { ...DEFAULT_EVS },
+    evs,
     ivs: isObject(raw.ivs) ? ({ ...DEFAULT_IVS, ...raw.ivs } as TeamMember['ivs']) : { ...DEFAULT_IVS },
-    nature: (typeof raw.nature === 'string' ? raw.nature : 'hardy') as TeamMember['nature'],
+    nature,
     level: typeof raw.level === 'number' ? raw.level : 50,
     available: typeof raw.available === 'boolean' ? raw.available : true,
+    // Champions Stat Points: keep an existing spread; otherwise derive from EVs
+    // so older teams retain their intent (never lost).
+    statPoints: isObject(raw.statPoints)
+      ? ({ ...DEFAULT_EVS, ...raw.statPoints } as TeamMember['statPoints'])
+      : evsToStatPoints(evs),
+    statAlignment: (typeof raw.statAlignment === 'string' ? raw.statAlignment : nature) as TeamMember['statAlignment'],
   };
 }
 

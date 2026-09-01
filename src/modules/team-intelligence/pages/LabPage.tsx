@@ -102,6 +102,18 @@ export default function LabPage() {
           if (!p) continue;
           const moveRecords = await getMovesByNames(m.moves);
           const moveTypes = moveRecords.map((mv) => mv.type);
+          // Prefer the SAVED Champions Stat Point spread (source of truth) for
+          // exact speed/analysis; convert StatSpread -> score model's spread.
+          const sp = m.statPoints
+            ? {
+                hp: m.statPoints.hp,
+                attack: m.statPoints.attack,
+                defense: m.statPoints.defense,
+                spAttack: m.statPoints.specialAttack,
+                spDefense: m.statPoints.specialDefense,
+                speed: m.statPoints.speed,
+              }
+            : undefined;
           members.push({
             name: p.name,
             types: p.types as PokemonType[],
@@ -110,6 +122,8 @@ export default function LabPage() {
             ability: m.ability,
             item: m.item,
             baseStats: p.baseStats,
+            statPoints: sp,
+            statAlignment: m.statAlignment ?? m.nature,
           });
         }
         result.set(team.id, members);
@@ -136,6 +150,8 @@ export default function LabPage() {
     const byCanon = new Map(usageRecords.map((r) => [canon(r.displayName), r]));
     return (members: ScorableMember[]): ScorableMember[] =>
       members.map((m) => {
+        // Saved Stat Points are the source of truth — don't override them.
+        if (m.statPoints) return m;
         const u = byCanon.get(canon(m.name));
         if (!u) return m;
         const spRow = u.rows

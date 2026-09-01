@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Pokemon, PokemonType, Nature } from '@/types/pokemon';
 import { POKEMON_TYPES } from '@/types/pokemon';
 import type { TeamMember, StatSpread } from '@/types/team';
-import { DEFAULT_EVS, DEFAULT_IVS } from '@/types/team';
+import { DEFAULT_EVS, DEFAULT_IVS, CHAMPIONS_SP_TOTAL, CHAMPIONS_SP_PER_STAT } from '@/types/team';
 import { searchPokemon, getPokemonById } from '@/db/pokemon-cache';
 import { useTeamStore } from '@/stores/team-store';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -49,6 +49,9 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
   const [moves, setMoves] = useState<string[]>(member?.moves ?? ['', '', '', '']);
   const [evs, setEvs] = useState<StatSpread>(member?.evs ?? { ...DEFAULT_EVS });
   const [ivs, setIvs] = useState<StatSpread>(member?.ivs ?? { ...DEFAULT_IVS });
+  const [statPoints, setStatPoints] = useState<StatSpread>(
+    member?.statPoints ?? { ...DEFAULT_EVS },
+  );
   const [moveSearches, setMoveSearches] = useState<string[]>(['', '', '', '']);
 
   // Champions maxes all EVs, so the S/V EV/IV spread is not meaningful there;
@@ -108,6 +111,11 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
     setIvs((prev) => ({ ...prev, [stat]: clamped }));
   };
 
+  const updateSp = (stat: keyof StatSpread, value: number) => {
+    const clamped = Math.max(0, Math.min(CHAMPIONS_SP_PER_STAT, value || 0));
+    setStatPoints((prev) => ({ ...prev, [stat]: clamped }));
+  };
+
   const updateMove = (index: number, value: string) => {
     setMoves((prev) => {
       const updated = [...prev];
@@ -152,6 +160,10 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
       ivs,
       level: regulation?.level ?? 50,
       available: true,
+      // Persist Champions Stat Points + alignment (source of truth for
+      // Champions). For non-Champions regs these still carry through harmlessly.
+      statPoints,
+      statAlignment: nature,
     };
 
     if (member) {
@@ -383,15 +395,46 @@ export default function PokemonEditor({ teamId, member, pokemonData, onClose }: 
             {/* Champions: EVs are maxed; the S/V EV/IV spread does not apply.
                 Show a Stat Points note instead (spreads appear in usage hints). */}
             {isChampions && (
-              <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-3 text-sm text-gray-300">
-                <span className="font-semibold text-gray-200">Stat Points (Champions)</span>
-                <p className="text-gray-400 mt-1">
-                  In Pokémon Champions all base EVs are maxed, so the
-                  Showdown-style EV/IV spread isn't used here. Champions uses
-                  <strong> Stat Points</strong> (0–32 per stat) — see the common
-                  spreads in the usage panel above. The EV/IV editor only appears
-                  for Showdown / Scarlet-Violet regulations.
-                </p>
+              <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-3">
+                {(() => {
+                  const spTotal = Object.values(statPoints).reduce((s, v) => s + v, 0);
+                  const over = spTotal > CHAMPIONS_SP_TOTAL;
+                  return (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-gray-200 text-sm">
+                          Stat Points (Champions)
+                        </span>
+                        <span className={`text-xs ${over ? 'text-red-400' : 'text-gray-400'}`}>
+                          {spTotal}/{CHAMPIONS_SP_TOTAL}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-0.5 mb-2">
+                        0–32 per stat, {CHAMPIONS_SP_TOTAL} total. 1 point = 1 stat at Lv50.
+                      </p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {statKeys.map((stat) => (
+                          <div key={stat}>
+                            <label className="text-xs text-gray-500">{statLabels[stat]}</label>
+                            <input
+                              type="number"
+                              className="input w-full text-sm"
+                              min={0}
+                              max={CHAMPIONS_SP_PER_STAT}
+                              value={statPoints[stat]}
+                              onChange={(e) => updateSp(stat, parseInt(e.target.value) || 0)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      {over && (
+                        <p className="text-xs text-red-400 mt-1">
+                          Over the {CHAMPIONS_SP_TOTAL}-point limit — trim before saving.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             )}
 
