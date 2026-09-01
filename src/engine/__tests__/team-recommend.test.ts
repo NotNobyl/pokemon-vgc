@@ -4,6 +4,7 @@ import {
   buildAroundCore,
   improveCurrentTeam,
   evidenceLabelText,
+  generateDiverseTeams,
 } from '@/engine/team-recommend';
 import type { PokemonUsage, UsageRow } from '@/types/usage';
 
@@ -96,5 +97,24 @@ describe('evidenceLabelText', () => {
   it('maps labels to human text', () => {
     expect(evidenceLabelText('strong-evidence')).toBe('Strong evidence');
     expect(evidenceLabelText('insufficient-data')).toBe('Insufficient data');
+  });
+});
+
+describe('generateDiverseTeams', () => {
+  it('is deterministic for a given seed offset', () => {
+    const a = generateDiverseTeams(records, 3, 0);
+    const b = generateDiverseTeams(records, 3, 0);
+    expect(a.map((t) => t.species.join(','))).toEqual(b.map((t) => t.species.join(',')));
+  });
+
+  it('produces different lead seeds as the offset advances (refresh)', () => {
+    const first = generateDiverseTeams(records, 1, 0)[0];
+    const second = generateDiverseTeams(records, 1, 1)[0];
+    // Different starting seed on refresh (locked seed differs).
+    expect(first.locked[0]).not.toBe(second.locked[0]);
+  });
+
+  it('returns empty for no data', () => {
+    expect(generateDiverseTeams([], 3, 0)).toEqual([]);
   });
 });
