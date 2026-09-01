@@ -22,6 +22,13 @@ export interface TeamMember {
   nature: Nature;
   level: number;
   available: boolean;
+  /**
+   * Champions Stat Point spread (0–32 per stat, 66 total). First-class for
+   * Champions; when absent it is derived from evs on load (see migration).
+   */
+  statPoints?: StatSpread;
+  /** Champions Stat Alignment (== nature). Defaults to `nature` when absent. */
+  statAlignment?: Nature;
 }
 
 export interface Team {
@@ -43,7 +50,29 @@ export interface Team {
 }
 
 /** Current team-record schema version. Bump when the Team shape changes. */
-export const TEAM_SCHEMA_VERSION = 1;
+export const TEAM_SCHEMA_VERSION = 2;
+
+/** Champions Stat Point caps. */
+export const CHAMPIONS_SP_TOTAL = 66;
+export const CHAMPIONS_SP_PER_STAT = 32;
+
+/**
+ * Convert S/V EVs to Champions Stat Points. At level 50, 4 EVs ≈ 1 stat point,
+ * so we map floor(ev/4), cap each stat at 32, and cap the total at 66 (trimming
+ * the largest stats first). Preserves the intent of an old spread.
+ */
+export function evsToStatPoints(evs: StatSpread): StatSpread {
+  const keys: (keyof StatSpread)[] = ['hp', 'attack', 'defense', 'specialAttack', 'specialDefense', 'speed'];
+  const sp: StatSpread = { hp: 0, attack: 0, defense: 0, specialAttack: 0, specialDefense: 0, speed: 0 };
+  for (const k of keys) sp[k] = Math.min(CHAMPIONS_SP_PER_STAT, Math.floor((evs[k] ?? 0) / 4));
+  let total = keys.reduce((s, k) => s + sp[k], 0);
+  while (total > CHAMPIONS_SP_TOTAL) {
+    const biggest = keys.reduce((a, b) => (sp[b] > sp[a] ? b : a));
+    sp[biggest] -= 1;
+    total -= 1;
+  }
+  return sp;
+}
 
 export type Archetype =
   | 'trick-room'
