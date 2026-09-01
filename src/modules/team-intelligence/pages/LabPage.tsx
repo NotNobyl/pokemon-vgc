@@ -21,11 +21,15 @@ import {
   usageResidualFindings,
   coverageGapFindings,
   discoveryLabelText,
+  overlookedCores,
   type DiscoveryFinding,
   type CoverageCandidate,
+  type OverlookedCore,
 } from '@/engine/off-meta';
+import MetaTeamsView from '../components/MetaTeamsView';
+import { canonicalize as canon } from '@/data/sources/showdown-mapping';
 
-type Mode = 'breakdown' | 'compare' | 'recommend';
+type Mode = 'breakdown' | 'compare' | 'recommend' | 'metateams';
 type RecMode = 'proven' | 'core' | 'improve' | 'discover';
 
 /**
@@ -186,6 +190,32 @@ export default function LabPage() {
     );
   }, [recMode, dexTypes, popularity]);
 
+  // Overlooked cores: structurally strong pairs that are rarely used together.
+  const overlooked: OverlookedCore[] = useMemo(() => {
+    if (recMode !== 'discover' || usageRecords.length === 0 || dexTypes.length === 0) {
+      return [];
+    }
+    // Pair co-occurrence lookup (0..1): does A list B (or vice versa) as teammate?
+    const mates = new Map<string, Set<string>>();
+    for (const rec of usageRecords) {
+      const k = canon(rec.displayName);
+      const set = mates.get(k) ?? new Set<string>();
+      for (const r of rec.rows) {
+        if (r.category === 'teammate' && r.name) set.add(canon(r.name));
+      }
+      mates.set(k, set);
+    }
+    const coOccur = (a: string, b: string) =>
+      mates.get(a)?.has(b) || mates.get(b)?.has(a) ? 1 : 0;
+    // Bound the pool to the ~50 most popular species so O(n^2) stays cheap.
+    const pool = [...popularity.entries()]
+      .sort((x, y) => y[1] - x[1])
+      .slice(0, 50)
+      .map(([key]) => dexTypes.find((d) => canon(d.name) === key))
+      .filter((d): d is { name: string; types: PokemonType[] } => !!d);
+    return overlookedCores(pool, coOccur, 8);
+  }, [recMode, usageRecords, dexTypes, popularity]);
+
   if (!ready) return <div className="text-gray-400">Loading…</div>;
 
   return (
@@ -193,7 +223,7 @@ export default function LabPage() {
       <h2 className="text-2xl font-bold">Team Intelligence Lab</h2>
 
       <div className="flex gap-1 flex-wrap">
-        {(['breakdown', 'compare', 'recommend'] as Mode[]).map((m) => (
+        {(['breakdown', 'compare', 'recommend', 'metateams'] as Mode[]).map((m) => (
           <button
             key={m}
             onClick={() => setMode(m)}
@@ -201,12 +231,20 @@ export default function LabPage() {
               mode === m ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
             }`}
           >
-            {m === 'breakdown' ? 'Score Breakdown' : m === 'compare' ? 'Compare Teams' : 'Recommend'}
+            {m === 'breakdown'
+              ? 'Score Breakdown'
+              : m === 'compare'
+                ? 'Compare Teams'
+                : m === 'recommend'
+                  ? 'Recommend'
+                  : 'Meta Teams'}
           </button>
         ))}
       </div>
 
-      {teams.length === 0 ? (
+      {mode === 'metateams' && <MetaTeamsView />}
+
+      {mode !== 'metateams' && (teams.length === 0 ? (
         <div className="card text-gray-400">Build a team first to analyze it here.</div>
       ) : (
         <>
@@ -248,6 +286,7 @@ export default function LabPage() {
               improvements={improvements}
               residualFindings={residualFindings}
               coverageFindings={coverageFindings}
+              overlooked={overlooked}
               hasUsage={usageRecords.length > 0}
               hasSelectedTeam={!!selectedTeam}
             />
@@ -304,7 +343,7 @@ export default function LabPage() {
             </ol>
           </div>
         </>
-      )}
+      ))}
     </div>
   );
 }
@@ -319,6 +358,7 @@ function RecommendPanel({
   improvements,
   residualFindings,
   coverageFindings,
+  overlooked,
   hasUsage,
   hasSelectedTeam,
 }: {
@@ -331,6 +371,7 @@ function RecommendPanel({
   improvements: ImprovementSuggestion[];
   residualFindings: DiscoveryFinding[];
   coverageFindings: CoverageCandidate[];
+  overlooked: OverlookedCore[];
   hasUsage: boolean;
   hasSelectedTeam: boolean;
 }) {
@@ -458,7 +499,32 @@ function RecommendPanel({
             </div>
           )}
 
-          {hasUsage && residualFindings.length === 0 && coverageFindings.length === 0 && (
+          {overlooked.length > 0 && (
+            <div className="card">
+              <h3 className="font-semibold mb-1">Overlooked cores (on-paper strong, rarely used)</h3>
+              <p className="text-xs text-gray-500 mb-2">
+                Pairs that cover each other defensively and threaten many types,
+                but that few players run together — potential blind spots in a
+                young meta. Type-chart signal only; verify sets and speed.
+              </p>
+              <ul className="space-y-2">
+                {overlooked.map((c) => (
+                  <li key={`${c.a}-${c.b}`} className="text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="capitalize font-medium flex-1">{c.a} + {c.b}</span>
+                      <span className="text-[11px] text-gray-400">{discoveryLabelText(c.label)}</span>
+                      <span className="text-[11px] text-gray-500">test ~{c.suggestedTestMatches}</span>
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      Structure {Math.round(c.structureScore * 100)}% · underused {Math.round(c.underuse * 100)}% → opportunity {Math.round(c.opportunity * 100)}%
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {hasUsage && residualFindings.length === 0 && coverageFindings.length === 0 && overlooked.length === 0 && (
             <div className="card text-sm text-gray-400">
               No clear off-meta opportunities from the current cached data.
             </div>
