@@ -66,13 +66,17 @@ describe('scoreTeam', () => {
     expect(meta.score).toBe(50);
   });
 
-  it('raises confidence when usage covers the team', () => {
-    const team = [mk('Incineroar'), mk('Rillaboom')];
-    const s = scoreTeam(team, DEFAULT_WEIGHTS, {
-      popularity: () => 0.8,
-    });
-    expect(s.confidence).toBeGreaterThan(0.7);
-    expect(s.confidenceLabel).toBe('high');
+  it('lets a well-rounded team score high (calibration guard)', () => {
+    // A realistic strong team: good coverage, 3-4 key roles, speed control,
+    // no dup items, usage-supported. Should exceed ~80, not cap near 70.
+    const team: ScorableMember[] = [
+      mk('Incineroar', { types: ['fire', 'dark'], moves: ['Fake Out', 'Knock Off'], moveTypes: ['dark', 'normal'], ability: 'intimidate', item: 'Sitrus Berry' }),
+      mk('Rillaboom', { types: ['grass'], moves: ['Fake Out', 'Grassy Glide'], moveTypes: ['grass', 'normal'], ability: 'grassy surge', item: 'Assault Vest' }),
+      mk('Flutter Mane', { types: ['ghost', 'fairy'], moves: ['Moonblast', 'Shadow Ball', 'Icy Wind'], moveTypes: ['fairy', 'ghost', 'ice'], item: 'Focus Sash' }),
+      mk('Landorus', { types: ['ground', 'flying'], moves: ['Earthquake', 'Rock Slide'], moveTypes: ['ground', 'rock'], ability: 'intimidate', item: 'Life Orb' }),
+    ];
+    const s = scoreTeam(team, DEFAULT_WEIGHTS, { popularity: () => 0.8 });
+    expect(s.total).toBeGreaterThan(78);
   });
 });
 

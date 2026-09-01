@@ -144,7 +144,10 @@ export function scoreTeam(
   if (roles.hasSpeedControl) strengths.push('Has speed control.');
   else weaknesses.push('No speed control (Tailwind/Trick Room/Icy Wind).');
 
-  // --- Role compression: how many key roles are filled. ---
+  // --- Role compression: reward filling the KEY roles. A strong team usually
+  // has ~3-4 of these; requiring all 6 (incl. weather, which only weather teams
+  // want) unfairly capped scores. Treat 4+ filled as excellent (100), scaling
+  // up so good teams aren't dragged down by a role they don't need. ---
   const roleFlags = [
     roles.hasSpeedControl,
     roles.hasFakeOut,
@@ -154,7 +157,10 @@ export function scoreTeam(
     roles.hasWeatherSetter,
   ];
   const rolesFilled = roleFlags.filter(Boolean).length;
-  const roleCompression = clamp100((rolesFilled / roleFlags.length) * 100);
+  // 3-4 key roles is a strong, realistic team. Curve rewards that without
+  // requiring all 6 (weather only matters to weather teams).
+  const ROLE_CURVE = [0, 45, 68, 85, 100, 100, 100];
+  const roleCompression = clamp100(ROLE_CURVE[Math.min(rolesFilled, 6)]);
   if (roles.hasFakeOut) strengths.push('Has Fake Out pressure.');
   if (roles.hasRedirection) strengths.push('Has redirection support.');
 

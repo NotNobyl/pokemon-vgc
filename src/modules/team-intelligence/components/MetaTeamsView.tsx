@@ -5,6 +5,7 @@ import type { TeamMember } from '@/types/team';
 import { DEFAULT_EVS, DEFAULT_IVS } from '@/types/team';
 import { getAllPokemon } from '@/db/pokemon-cache';
 import { getAllUsageForFormat } from '@/db/usage-cache';
+import { db } from '@/db/database';
 import { CURRENT_FORMAT, useUsageStore } from '@/stores/usage-store';
 import { useTeamStore } from '@/stores/team-store';
 import { buildProvenTeams, generateDiverseTeams } from '@/engine/team-recommend';
@@ -34,13 +35,15 @@ export default function MetaTeamsView() {
   const [ready, setReady] = useState(false);
   const [savedName, setSavedName] = useState<string | null>(null);
   const [refreshIndex, setRefreshIndex] = useState(0);
+  const [moveTypeMap, setMoveTypeMap] = useState<Map<string, PokemonType>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const [recs, allDex] = await Promise.all([
+      const [recs, allDex, allMoves] = await Promise.all([
         getAllUsageForFormat(CURRENT_FORMAT, season ?? 'Current'),
         getAllPokemon(),
+        db.moves.toArray(),
       ]);
       if (cancelled) return;
       setRecords(recs);
@@ -52,6 +55,9 @@ export default function MetaTeamsView() {
           baseStats: p.baseStats,
         })),
       );
+      const mt = new Map<string, PokemonType>();
+      for (const mv of allMoves) mt.set(mv.name.toLowerCase(), mv.type);
+      setMoveTypeMap(mt);
       setReady(true);
     }
     void load();
@@ -100,9 +106,10 @@ export default function MetaTeamsView() {
           name: d.name,
           types: d.types,
           moves: moveRows.map((r) => r.name),
-          // moveTypes unknown here without move records; leave empty (coverage
-          // still uses types). Kept simple; score focuses on structure+speed.
-          moveTypes: [],
+          // Resolve real move types so offensive coverage isn't undercounted.
+          moveTypes: moveRows
+            .map((r) => moveTypeMap.get(r.name.toLowerCase()))
+            .filter((t): t is PokemonType => !!t),
           ability: abilityRow?.name ?? '',
           item: itemRow?.name ?? '',
           baseStats: d.baseStats,
@@ -114,7 +121,11 @@ export default function MetaTeamsView() {
       return scoreTeam(members, undefined, {
         popularity: (key) => {
           const u = usageByCanon.get(key);
-          return u ? 0.7 : null; // present in usage => supported
+          if (!u) return null;
+          // Real popularity: how many teams list this mon as a teammate,
+          // normalized — richer than a flat constant.
+          const teammateMentions = u.rows.filter((r) => r.category === 'teammate').length;
+          return Math.min(1, 0.5 + teammateMentions / 20);
         },
       });
     };
@@ -132,7 +143,7 @@ export default function MetaTeamsView() {
       records,
     );
     return { assembled, score: best.score };
-  }, [records, dex, dexByCanon, usageByCanon, refreshIndex]);
+  }, [records, dex, dexByCanon, usageByCanon, refreshIndex, moveTypeMap]);
 
   const teams: AssembledMetaTeam[] = useMemo(() => {
     if (records.length === 0) return [];
