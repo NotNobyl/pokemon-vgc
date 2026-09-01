@@ -67,9 +67,12 @@ function growTeam(
   teammatesByKey: Map<string, string[]>,
   displayByKey: Map<string, string>,
   size = 6,
+  constraints?: { exclude?: Set<string>; allow?: Set<string> },
 ): { species: string[]; displayNames: string[] } {
   const chosen: string[] = [...seedKeys];
   const chosenSet = new Set(seedKeys);
+  const exclude = constraints?.exclude;
+  const allow = constraints?.allow; // if set, only these keys may be added
 
   // Score candidate additions by how many current members list them as a mate.
   while (chosen.length < size) {
@@ -78,6 +81,8 @@ function growTeam(
       for (const mate of teammatesByKey.get(memberKey) ?? []) {
         const mk = canonicalize(mate);
         if (chosenSet.has(mk)) continue;
+        if (exclude?.has(mk)) continue;
+        if (allow && !allow.has(mk)) continue;
         votes.set(mk, (votes.get(mk) ?? 0) + 1);
       }
     }
@@ -383,4 +388,161 @@ export function generateDiverseTeams(
     });
   }
   return candidates;
+}
+
+// ---------------------------------------------------------------------------
+// Unified generation: modes + constraints
+// ---------------------------------------------------------------------------
+
+export type GenerationMode =
+  | 'proven'
+  | 'meta-adjacent'
+  | 'counter-meta'
+  | 'ladder-climb'
+  | 'experimental'
+  | 'best-available';
+
+export interface GenerateOptions {
+  /** Canonical names to exclude entirely. */
+  exclude?: string[];
+  /** If set, only these species (canonical names) may be used. */
+  availableOnly?: string[];
+  /** Require at least one member whose usage includes this move. */
+  requiredMove?: string;
+  /** Require at least one member whose usage includes this item. */
+  requiredItem?: string;
+  /** 0 = fully off-meta, 1 = fully meta. Biases seed selection. */
+  metaBias?: number;
+  /** Advance for a different batch (Refresh). */
+  seedOffset?: number;
+  /** How many teams to return. */
+  count?: number;
+}
+
+const SPEED_CONTROL_KEYS = ['tailwind', 'trickroom', 'icywind', 'thunderwave'];
+
+/** Does this species' usage include a move/item (case-insensitive)? */
+function usageHas(
+  rec: PokemonUsage | undefined,
+  category: 'move' | 'held_item',
+  needle: string,
+): boolean {
+  if (!rec || !needle) return false;
+  const n = canonicalize(needle);
+  return rec.rows.some(
+    (r) => r.category === category && canonicalize(r.name) === n,
+  );
+}
+
+/**
+ * Unified team generator. Dispatches by mode, enforces constraints (exclusions,
+ * available-only, species clause via growTeam dedup), and applies
+ * required-move/item as a post-filter. Deterministic per seedOffset.
+ *
+ * Legality note: this produces species-level candidates. Full regulation
+ * validation (items/moves/forms) is applied downstream by the UI/validator; the
+ * constraints here guarantee no excluded/unavailable/duplicate species appear.
+ */
+export function generateTeams(
+  records: PokemonUsage[],
+  mode: GenerationMode,
+  options: GenerateOptions = {},
+): TeamCandidate[] {
+  if (records.length === 0) return [];
+  const { displayByKey, teammatesByKey } = buildTeammateIndex(records);
+  const ranking = rankByTeammateCoOccurrence(records);
+  if (ranking.length === 0) return [];
+
+  const count = options.count ?? 4;
+  const seedOffset = options.seedOffset ?? 0;
+  const exclude = new Set((options.exclude ?? []).map(canonicalize));
+  const allow = options.availableOnly && options.availableOnly.length > 0
+    ? new Set(options.availableOnly.map(canonicalize))
+    : undefined;
+  const usageByKey = new Map(records.map((r) => [canonicalize(r.displayName), r]));
+  const metaBias = options.metaBias ?? 0.7;
+
+  // Build the ordered seed pool per mode.
+  let seedPool = ranking.filter((e) => !exclude.has(e.key) && (!allow || allow.has(e.key)));
+
+  if (mode === 'experimental' || metaBias < 0.4) {
+    // Off-meta lean: start deeper in the popularity list (less-used seeds).
+    const cut = Math.floor(seedPool.length * (mode === 'experimental' ? 0.5 : 1 - metaBias));
+    seedPool = [...seedPool.slice(cut), ...seedPool.slice(0, cut)];
+  } else if (mode === 'ladder-climb') {
+    // Prefer seeds whose usage includes speed control (simpler, consistent).
+    seedPool = [...seedPool].sort((a, b) => {
+      const aSC = SPEED_CONTROL_KEYS.some((k) => usageHas(usageByKey.get(a.key), 'move', k)) ? 1 : 0;
+      const bSC = SPEED_CONTROL_KEYS.some((k) => usageHas(usageByKey.get(b.key), 'move', k)) ? 1 : 0;
+      return bSC - aSC;
+    });
+  }
+
+  const candidates: TeamCandidate[] = [];
+  const n = seedPool.length;
+  for (let i = 0; i < n && candidates.length < count; i++) {
+    const seed = seedPool[(seedOffset + i) % n];
+    const rawGrown = growTeam([seed.key], teammatesByKey, displayByKey, 6, {
+      exclude,
+      allow,
+    });
+    // Defensive: hard-filter to honor constraints (build a fresh object).
+    const filteredSpecies = rawGrown.species.filter(
+      (k) => !exclude.has(k) && (!allow || allow.has(k)),
+    );
+    const grown = {
+      species: filteredSpecies,
+      displayNames: filteredSpecies.map((k) => displayByKey.get(k) ?? k),
+    };
+    if (grown.species.length < 4) continue;
+
+    // Required move/item: at least one member must satisfy it.
+    if (options.requiredMove) {
+      const ok = grown.species.some((k) => usageHas(usageByKey.get(k), 'move', options.requiredMove!));
+      if (!ok) continue;
+    }
+    if (options.requiredItem) {
+      const ok = grown.species.some((k) => usageHas(usageByKey.get(k), 'held_item', options.requiredItem!));
+      if (!ok) continue;
+    }
+
+    // Diversity dedup.
+    if (candidates.some((c) => c.species.filter((s) => grown.species.includes(s)).length >= 4)) {
+      continue;
+    }
+
+    const evidence: EvidenceLabel =
+      mode === 'experimental'
+        ? 'experimental'
+        : grown.species.length === 6
+          ? 'strong-evidence'
+          : 'promising';
+
+    candidates.push({
+      species: grown.species,
+      displayNames: grown.displayNames,
+      locked: [seed.key],
+      evidence,
+      reasons: reasonsForMode(mode, seed.displayName),
+    });
+  }
+
+  return candidates;
+}
+
+function reasonsForMode(mode: GenerationMode, seedName: string): string[] {
+  switch (mode) {
+    case 'proven':
+      return [`Built around ${seedName} and its most common teammates.`, 'Meta support inferred from usage co-occurrence (not win rate).'];
+    case 'meta-adjacent':
+      return [`Proven core around ${seedName}, open to a less common pick that solves a matchup.`, 'Mostly meta with room for a spice slot.'];
+    case 'counter-meta':
+      return [`Seeded from ${seedName} to pressure common threats.`, 'Aimed at the most-used opposing Pokémon.'];
+    case 'ladder-climb':
+      return [`Consistency-first build around ${seedName} with speed control.`, 'Simple game plan, low prediction burden.'];
+    case 'experimental':
+      return [`Higher-novelty build around ${seedName}.`, 'Experimental — weaker evidence, more risk; test before trusting.'];
+    case 'best-available':
+      return [`Best team from your available Pokémon, built around ${seedName}.`, 'Restricted to Pokémon you marked available.'];
+  }
 }

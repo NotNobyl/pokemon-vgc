@@ -8,7 +8,7 @@ import { getAllUsageForFormat } from '@/db/usage-cache';
 import { db } from '@/db/database';
 import { CURRENT_FORMAT, useUsageStore } from '@/stores/usage-store';
 import { useTeamStore } from '@/stores/team-store';
-import { buildProvenTeams, generateDiverseTeams } from '@/engine/team-recommend';
+import { buildProvenTeams, generateTeams, type GenerationMode } from '@/engine/team-recommend';
 import { assembleMetaTeam, type AssembledMetaTeam } from '@/engine/meta-team';
 import { scoreTeam, type ScorableMember, type TeamScore } from '@/engine/team-score';
 import { buildGamePlan, type GamePlan, type GamePlanMember } from '@/engine/game-plan';
@@ -37,6 +37,14 @@ export default function MetaTeamsView() {
   const [savedName, setSavedName] = useState<string | null>(null);
   const [refreshIndex, setRefreshIndex] = useState(0);
   const [moveTypeMap, setMoveTypeMap] = useState<Map<string, PokemonType>>(new Map());
+  // Generation controls
+  const [mode, setMode] = useState<GenerationMode>('proven');
+  const [excludeInput, setExcludeInput] = useState('');
+  const [availableInput, setAvailableInput] = useState('');
+  const [availableOnly, setAvailableOnly] = useState(false);
+  const [requiredMove, setRequiredMove] = useState('');
+  const [requiredItem, setRequiredItem] = useState('');
+  const [metaBias, setMetaBias] = useState(0.7);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,7 +95,17 @@ export default function MetaTeamsView() {
   const suggestion = useMemo(() => {
     if (records.length === 0 || dex.length === 0) return null;
     // Generate a small pool at this refresh offset, score each, pick the best.
-    const pool = generateDiverseTeams(records, 4, refreshIndex);
+    const pool = generateTeams(records, mode, {
+      seedOffset: refreshIndex,
+      count: 4,
+      exclude: excludeInput.split(',').map((s) => s.trim()).filter(Boolean),
+      availableOnly: availableOnly
+        ? availableInput.split(',').map((s) => s.trim()).filter(Boolean)
+        : undefined,
+      requiredMove: requiredMove.trim() || undefined,
+      requiredItem: requiredItem.trim() || undefined,
+      metaBias,
+    });
     if (pool.length === 0) return null;
 
     const scoreCandidate = (displayNames: string[]): TeamScore | null => {
@@ -159,7 +177,7 @@ export default function MetaTeamsView() {
     const plan = buildGamePlan(planMembers);
 
     return { assembled, score: best.score, plan };
-  }, [records, dex, dexByCanon, usageByCanon, refreshIndex, moveTypeMap]);
+  }, [records, dex, dexByCanon, usageByCanon, refreshIndex, moveTypeMap, mode, excludeInput, availableOnly, availableInput, requiredMove, requiredItem, metaBias]);
 
   const teams: AssembledMetaTeam[] = useMemo(() => {
     if (records.length === 0) return [];
@@ -232,6 +250,74 @@ export default function MetaTeamsView() {
             their most common sets. Percentages are observed usage — there are no
             win rates in the source, so none are claimed. Save one and refine it.
           </p>
+
+          {/* Generation controls */}
+          <div className="card space-y-3">
+            <h3 className="font-semibold">Generate a team</h3>
+            <div>
+              <label className="text-xs text-gray-400">Mode</label>
+              <select
+                className="input w-full text-sm"
+                value={mode}
+                onChange={(e) => { setMode(e.target.value as GenerationMode); setRefreshIndex(0); }}
+              >
+                <option value="proven">Proven Meta</option>
+                <option value="meta-adjacent">Meta-Adjacent (proven + spice)</option>
+                <option value="counter-meta">Counter the Meta</option>
+                <option value="ladder-climb">Ladder Climb (consistency)</option>
+                <option value="experimental">Experimental (high novelty)</option>
+                <option value="best-available">Best From My Available</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-400">
+                Meta ↔ Off-meta bias: {Math.round(metaBias * 100)}% meta
+              </label>
+              <input
+                type="range" min={0} max={1} step={0.1}
+                value={metaBias}
+                onChange={(e) => { setMetaBias(Number(e.target.value)); setRefreshIndex(0); }}
+                className="w-full"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-400">Exclude Pokémon (comma-separated)</label>
+              <input
+                className="input w-full text-sm"
+                placeholder="e.g. Incineroar, Amoonguss"
+                value={excludeInput}
+                onChange={(e) => { setExcludeInput(e.target.value); setRefreshIndex(0); }}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-400">Require move</label>
+                <input className="input w-full text-sm" placeholder="e.g. Trick Room" value={requiredMove} onChange={(e) => { setRequiredMove(e.target.value); setRefreshIndex(0); }} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400">Require item</label>
+                <input className="input w-full text-sm" placeholder="e.g. Focus Sash" value={requiredItem} onChange={(e) => { setRequiredItem(e.target.value); setRefreshIndex(0); }} />
+              </div>
+            </div>
+
+            <div>
+              <label className="flex items-center gap-2 text-sm text-gray-300">
+                <input type="checkbox" checked={availableOnly} onChange={(e) => { setAvailableOnly(e.target.checked); setRefreshIndex(0); }} />
+                Only use Pokémon I own
+              </label>
+              {availableOnly && (
+                <input
+                  className="input w-full text-sm mt-1"
+                  placeholder="Your available Pokémon, comma-separated"
+                  value={availableInput}
+                  onChange={(e) => { setAvailableInput(e.target.value); setRefreshIndex(0); }}
+                />
+              )}
+            </div>
+          </div>
 
           {/* Suggest / Refresh: best-scoring generated team */}
           {suggestion && (
