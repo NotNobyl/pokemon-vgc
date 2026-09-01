@@ -193,3 +193,105 @@ export function discoveryLabelText(l: DiscoveryLabel): string {
     case 'speculative': return 'Speculative';
   }
 }
+
+export interface OverlookedCore {
+  a: string;
+  b: string;
+  /** 0..1 structural strength (defensive complementarity + coverage). */
+  structureScore: number;
+  /** 0..1 how little the pair is actually used together. */
+  underuse: number;
+  /** structureScore * underuse — high = strong on paper, rarely played. */
+  opportunity: number;
+  label: DiscoveryLabel;
+  reasons: string[];
+  suggestedTestMatches: number;
+}
+
+const ALL_TYPES_OM: PokemonType[] = [
+  'normal', 'fire', 'water', 'electric', 'grass', 'ice', 'fighting', 'poison',
+  'ground', 'flying', 'psychic', 'bug', 'rock', 'ghost', 'dragon', 'dark',
+  'steel', 'fairy',
+];
+
+function clamp01om(n: number): number {
+  return Math.min(1, Math.max(0, n));
+}
+
+function typeMult(atk: PokemonType, def: PokemonType[]): number {
+  return def.reduce((m, d) => m * getEffectiveness(atk, [d]), 1);
+}
+
+/** How well two type profiles cover each other's weaknesses (0..1). */
+function defensiveComplement(aTypes: PokemonType[], bTypes: PokemonType[]): number {
+  let covered = 0;
+  let weakTotal = 0;
+  const check = (weakSide: PokemonType[], coverSide: PokemonType[]) => {
+    for (const atk of ALL_TYPES_OM) {
+      if (typeMult(atk, weakSide) <= 1) continue;
+      weakTotal++;
+      if (typeMult(atk, coverSide) < 1) covered++;
+    }
+  };
+  check(aTypes, bTypes);
+  check(bTypes, aTypes);
+  return weakTotal === 0 ? 0.5 : covered / weakTotal;
+}
+
+/** Fraction of the 18 types the pair hits super-effectively with STAB (0..1). */
+function combinedCoverage(aTypes: PokemonType[], bTypes: PokemonType[]): number {
+  let hit = 0;
+  for (const def of ALL_TYPES_OM) {
+    const canHit = [...aTypes, ...bTypes].some((atk) => getEffectiveness(atk, [def]) > 1);
+    if (canHit) hit++;
+  }
+  return hit / ALL_TYPES_OM.length;
+}
+
+/**
+ * Overlooked cores: pairs that are STRUCTURALLY strong (cover each other's
+ * weaknesses + broad combined coverage) but rarely used together — targeting
+ * on-paper-excellent pairings a young meta hasn't adopted. Type-chart signal
+ * only; sets/speed/roles must be verified in practice.
+ *
+ * @param dex candidate species with types (caller keeps the pool reasonable).
+ * @param coOccurrence 0..1 how often the pair is ALREADY used together.
+ */
+export function overlookedCores(
+  dex: { name: string; types: PokemonType[] }[],
+  coOccurrence: (aKey: string, bKey: string) => number,
+  limit = 8,
+): OverlookedCore[] {
+  const results: OverlookedCore[] = [];
+  for (let i = 0; i < dex.length; i++) {
+    for (let j = i + 1; j < dex.length; j++) {
+      const a = dex[i];
+      const b = dex[j];
+      const complement = defensiveComplement(a.types, b.types);
+      const coverage = combinedCoverage(a.types, b.types);
+      const structureScore = clamp01om(0.6 * complement + 0.4 * coverage);
+      if (structureScore < 0.55) continue;
+
+      const used = coOccurrence(canonicalize(a.name), canonicalize(b.name));
+      const underuse = 1 - clamp01om(used);
+      if (underuse < 0.5) continue;
+
+      const opportunity = structureScore * underuse;
+      results.push({
+        a: a.name,
+        b: b.name,
+        structureScore: Number(structureScore.toFixed(2)),
+        underuse: Number(underuse.toFixed(2)),
+        opportunity: Number(opportunity.toFixed(2)),
+        label: labelFor(underuse, structureScore),
+        reasons: [
+          `${a.name} + ${b.name} cover each other defensively and together threaten many types (structure ${Math.round(structureScore * 100)}%).`,
+          'Rarely used together in current usage — a potential blind spot in a young meta.',
+          'Structural (type-chart) signal only; verify sets, speed, and roles in practice.',
+        ],
+        suggestedTestMatches: testMatchesFor(structureScore),
+      });
+    }
+  }
+  return results.sort((x, y) => y.opportunity - x.opportunity).slice(0, limit);
+}

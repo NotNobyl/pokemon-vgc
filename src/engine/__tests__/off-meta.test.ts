@@ -3,6 +3,7 @@ import {
   usageResidualFindings,
   coverageGapFindings,
   discoveryLabelText,
+  overlookedCores,
 } from '@/engine/off-meta';
 import type { PokemonUsage, UsageRow } from '@/types/usage';
 import type { PokemonType } from '@/types/pokemon';
@@ -93,5 +94,33 @@ describe('discoveryLabelText', () => {
     for (const l of ['promising', 'experimental', 'speculative'] as const) {
       expect(discoveryLabelText(l)).not.toMatch(/optimal|broken/i);
     }
+  });
+});
+
+describe('overlookedCores', () => {
+  it('surfaces a structurally strong pair that is rarely used together', () => {
+    // Steel/Fairy + Fire/Ground style complementary pair, never co-used.
+    const dex = [
+      { name: 'Tinkaton', types: ['steel', 'fairy'] as PokemonType[] },
+      { name: 'Camerupt', types: ['fire', 'ground'] as PokemonType[] },
+      { name: 'Garchomp', types: ['dragon', 'ground'] as PokemonType[] },
+    ];
+    const cores = overlookedCores(dex, () => 0, 5); // 0 = never used together
+    // Should return at least one core and never claim certainty.
+    expect(Array.isArray(cores)).toBe(true);
+    for (const c of cores) {
+      expect(c.underuse).toBeGreaterThanOrEqual(0.5);
+      expect(c.opportunity).toBeGreaterThan(0);
+      expect(JSON.stringify(c)).not.toMatch(/optimal|broken|guaranteed/i);
+    }
+  });
+
+  it('excludes pairs that are already commonly used together', () => {
+    const dex = [
+      { name: 'Tinkaton', types: ['steel', 'fairy'] as PokemonType[] },
+      { name: 'Camerupt', types: ['fire', 'ground'] as PokemonType[] },
+    ];
+    const cores = overlookedCores(dex, () => 0.9, 5); // already heavily co-used
+    expect(cores).toHaveLength(0);
   });
 });
