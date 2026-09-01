@@ -252,15 +252,19 @@ function combinedCoverage(aTypes: PokemonType[], bTypes: PokemonType[]): number 
  * Overlooked cores: pairs that are STRUCTURALLY strong (cover each other's
  * weaknesses + broad combined coverage) but rarely used together — targeting
  * on-paper-excellent pairings a young meta hasn't adopted. Type-chart signal
- * only; sets/speed/roles must be verified in practice.
+ * plus optional moveset/speed coherence when a resolver is supplied.
  *
  * @param dex candidate species with types (caller keeps the pool reasonable).
  * @param coOccurrence 0..1 how often the pair is ALREADY used together.
+ * @param coherenceOf optional: returns 0..1 moveset/speed coherence for a pair
+ *   (from analyzeCore). When provided, it modulates the opportunity score and
+ *   adds a reason, so structurally-strong-but-incoherent pairs rank lower.
  */
 export function overlookedCores(
   dex: { name: string; types: PokemonType[] }[],
   coOccurrence: (aKey: string, bKey: string) => number,
   limit = 8,
+  coherenceOf?: (aName: string, bName: string) => number | null,
 ): OverlookedCore[] {
   const results: OverlookedCore[] = [];
   for (let i = 0; i < dex.length; i++) {
@@ -269,12 +273,30 @@ export function overlookedCores(
       const b = dex[j];
       const complement = defensiveComplement(a.types, b.types);
       const coverage = combinedCoverage(a.types, b.types);
-      const structureScore = clamp01om(0.6 * complement + 0.4 * coverage);
+      let structureScore = clamp01om(0.6 * complement + 0.4 * coverage);
       if (structureScore < 0.55) continue;
 
       const used = coOccurrence(canonicalize(a.name), canonicalize(b.name));
       const underuse = 1 - clamp01om(used);
       if (underuse < 0.5) continue;
+
+      // Fold in moveset/speed coherence when available.
+      const reasons = [
+        `${a.name} + ${b.name} cover each other defensively and together threaten many types (structure ${Math.round(structureScore * 100)}%).`,
+        'Rarely used together in current usage — a potential blind spot in a young meta.',
+      ];
+      const coherence = coherenceOf?.(a.name, b.name);
+      if (typeof coherence === 'number') {
+        // Blend structure with real kit/speed coherence.
+        structureScore = clamp01om(0.6 * structureScore + 0.4 * coherence);
+        reasons.push(
+          coherence >= 0.5
+            ? `Movesets/speed look coherent together (${Math.round(coherence * 100)}%).`
+            : `But movesets/speed coherence is only ${Math.round(coherence * 100)}% — verify roles and speed control before trusting it.`,
+        );
+      } else {
+        reasons.push('Structural (type-chart) signal only; verify sets, speed, and roles in practice.');
+      }
 
       const opportunity = structureScore * underuse;
       results.push({
@@ -284,11 +306,7 @@ export function overlookedCores(
         underuse: Number(underuse.toFixed(2)),
         opportunity: Number(opportunity.toFixed(2)),
         label: labelFor(underuse, structureScore),
-        reasons: [
-          `${a.name} + ${b.name} cover each other defensively and together threaten many types (structure ${Math.round(structureScore * 100)}%).`,
-          'Rarely used together in current usage — a potential blind spot in a young meta.',
-          'Structural (type-chart) signal only; verify sets, speed, and roles in practice.',
-        ],
+        reasons,
         suggestedTestMatches: testMatchesFor(structureScore),
       });
     }

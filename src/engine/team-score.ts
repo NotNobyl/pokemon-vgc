@@ -12,11 +12,12 @@
  * stamped so recommendations remain reproducible/auditable.
  */
 
-import type { PokemonType } from '@/types/pokemon';
+import type { PokemonType, BaseStats } from '@/types/pokemon';
 import { analyzeSynergy, checkRoleCoverage } from './synergy-analyzer';
+import { analyzeCore, type AnalyzableMember } from './team-analysis';
 import { canonicalize } from '@/data/sources/showdown-mapping';
 
-export const TEAM_SCORE_MODEL_VERSION = 1;
+export const TEAM_SCORE_MODEL_VERSION = 2;
 
 /** Configurable category weights (sum need not be 1; total is normalized). */
 export interface ScoreWeights {
@@ -25,8 +26,10 @@ export interface ScoreWeights {
   speedControl: number;
   roleCompression: number;
   metaSupport: number; // INFERRED from usage co-occurrence, not win rate
+  speedCoherence: number; // fast/slow coherence + no speed redundancy (approx)
   sharedWeaknessPenalty: number;
   itemConflictPenalty: number;
+  redundancyPenalty: number; // anti-synergy: conflicting weather, overlap, etc.
 }
 
 export const DEFAULT_WEIGHTS: ScoreWeights = {
@@ -35,8 +38,10 @@ export const DEFAULT_WEIGHTS: ScoreWeights = {
   speedControl: 1,
   roleCompression: 0.8,
   metaSupport: 0.6,
+  speedCoherence: 0.8,
   sharedWeaknessPenalty: 1,
   itemConflictPenalty: 0.5,
+  redundancyPenalty: 0.7,
 };
 
 /** A resolved team member for scoring (already joined with dex data). */
@@ -47,6 +52,8 @@ export interface ScorableMember {
   moveTypes: PokemonType[];
   ability: string;
   item: string;
+  /** Base stats — enables speed-coherence + anti-synergy analysis. */
+  baseStats?: BaseStats;
 }
 
 export interface CategoryScore {
@@ -178,14 +185,40 @@ export function scoreTeam(
 
   const sharedWeaknessPenalty = clamp100(100 - sharedWeakCount * 20 - Math.max(0, maxWeakStack - 2) * 15);
 
+  // --- Deeper analysis: speed coherence + anti-synergy (approximate). ---
+  // Only if base stats are available for members.
+  let speedCoherence = 60; // neutral-ish when unknown
+  let redundancyPenalty = 100;
+  const membersWithStats = members.filter((m) => m.baseStats);
+  if (membersWithStats.length === members.length && members.length >= 2) {
+    const analyzable: AnalyzableMember[] = members.map((m) => ({
+      name: m.name,
+      baseStats: m.baseStats!,
+      moves: m.moves,
+      ability: m.ability,
+    }));
+    const core = analyzeCore(analyzable);
+    speedCoherence = clamp100(core.coherence * 100);
+    redundancyPenalty = clamp100(100 - core.issues.length * 18);
+    for (const s of core.synergies) strengths.push(s);
+    for (const iss of core.issues) weaknesses.push(iss);
+    evidence.push(
+      'Speed coherence + anti-synergy use base stats and common spreads — speed tiers are APPROXIMATE (Champions Stat Points not fully modeled).',
+    );
+  } else {
+    evidence.push('Speed/anti-synergy analysis skipped (missing base stats for some members).');
+  }
+
   const categories: CategoryScore[] = [
     { key: 'defensiveSynergy', label: 'Defensive Synergy', score: defensiveSynergy, detail: `Max ${maxWeakStack} members share a weakness.` },
     { key: 'offensiveCoverage', label: 'Offensive Coverage', score: offensiveCoverage, detail: `${coveredCount}/18 types hit super-effectively.` },
     { key: 'speedControl', label: 'Speed Control', score: speedControl, detail: roles.hasSpeedControl ? 'Present.' : 'Missing.' },
+    { key: 'speedCoherence', label: 'Speed Coherence (approx)', score: speedCoherence, detail: 'Fast/slow/TR coherence + speed-tier spread.' },
     { key: 'roleCompression', label: 'Role Compression', score: roleCompression, detail: `${rolesFilled}/6 key roles filled.` },
     { key: 'metaSupport', label: 'Meta Support (inferred)', score: metaSupport, detail: 'From usage co-occurrence, not win rate.' },
     { key: 'sharedWeaknessPenalty', label: 'Weakness Safety', score: sharedWeaknessPenalty, detail: 'Higher = fewer stacked weaknesses.' },
     { key: 'itemConflictPenalty', label: 'Item Legality', score: itemConflictPenalty, detail: dupItems > 0 ? 'Duplicate items present.' : 'No item conflicts.' },
+    { key: 'redundancyPenalty', label: 'Anti-Synergy Safety', score: redundancyPenalty, detail: 'Higher = fewer conflicting weathers / overlaps.' },
   ];
 
   // Weighted, normalized total.

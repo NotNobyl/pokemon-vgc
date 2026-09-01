@@ -28,6 +28,8 @@ import {
 } from '@/engine/off-meta';
 import MetaTeamsView from '../components/MetaTeamsView';
 import { canonicalize as canon } from '@/data/sources/showdown-mapping';
+import { analyzeCore } from '@/engine/team-analysis';
+import type { BaseStats } from '@/types/pokemon';
 
 type Mode = 'breakdown' | 'compare' | 'recommend' | 'metateams';
 type RecMode = 'proven' | 'core' | 'improve' | 'discover';
@@ -49,6 +51,7 @@ export default function LabPage() {
   const [popularity, setPopularity] = useState<Map<string, number>>(new Map());
   const [usageRecords, setUsageRecords] = useState<PokemonUsage[]>([]);
   const [dexTypes, setDexTypes] = useState<{ name: string; types: PokemonType[] }[]>([]);
+  const [dexFull, setDexFull] = useState<{ name: string; baseStats: BaseStats }[]>([]);
   const [recMode, setRecMode] = useState<RecMode>('proven');
   const [coreInput, setCoreInput] = useState('');
   const [ready, setReady] = useState(false);
@@ -88,6 +91,7 @@ export default function LabPage() {
       const byId = new Map(allPokemon.map((p) => [p.id, p]));
       if (!cancelled) {
         setDexTypes(allPokemon.map((p) => ({ name: p.name, types: p.types as PokemonType[] })));
+        setDexFull(allPokemon.map((p) => ({ name: p.name, baseStats: p.baseStats })));
       }
       const result = new Map<string, ScorableMember[]>();
 
@@ -105,6 +109,7 @@ export default function LabPage() {
             moveTypes,
             ability: m.ability,
             item: m.item,
+            baseStats: p.baseStats,
           });
         }
         result.set(team.id, members);
@@ -213,8 +218,38 @@ export default function LabPage() {
       .slice(0, 50)
       .map(([key]) => dexTypes.find((d) => canon(d.name) === key))
       .filter((d): d is { name: string; types: PokemonType[] } => !!d);
-    return overlookedCores(pool, coOccur, 8);
-  }, [recMode, usageRecords, dexTypes, popularity]);
+
+    // Coherence resolver: pull common moves (usage) + base stats (dex) per mon
+    // and run the unified analyzer so kit/speed coherence modulates the score.
+    const usageByCanon = new Map(usageRecords.map((r) => [canon(r.displayName), r]));
+    const commonMoves = (name: string) => {
+      const u = usageByCanon.get(canon(name));
+      if (!u) return [];
+      return u.rows
+        .filter((r) => r.category === 'move' && r.name)
+        .sort((a, b) => a.rank - b.rank)
+        .slice(0, 4)
+        .map((r) => r.name);
+    };
+    const commonAbility = (name: string) => {
+      const u = usageByCanon.get(canon(name));
+      const ab = u?.rows.filter((r) => r.category === 'ability').sort((a, b) => a.rank - b.rank)[0];
+      return ab?.name ?? '';
+    };
+    const baseStatsByCanon = new Map(dexFull.map((d) => [canon(d.name), d.baseStats]));
+    const coherenceOf = (aName: string, bName: string): number | null => {
+      const aStats = baseStatsByCanon.get(canon(aName));
+      const bStats = baseStatsByCanon.get(canon(bName));
+      if (!aStats || !bStats) return null;
+      const core = analyzeCore([
+        { name: aName, baseStats: aStats, moves: commonMoves(aName), ability: commonAbility(aName) },
+        { name: bName, baseStats: bStats, moves: commonMoves(bName), ability: commonAbility(bName) },
+      ]);
+      return core.coherence;
+    };
+
+    return overlookedCores(pool, coOccur, 8, coherenceOf);
+  }, [recMode, usageRecords, dexTypes, popularity, dexFull]);
 
   if (!ready) return <div className="text-gray-400">Loading…</div>;
 
