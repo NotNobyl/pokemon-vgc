@@ -1,8 +1,13 @@
 import type { Regulation } from '@/types/regulation';
 import regMA from './regulations/reg-m-a.json';
 import regMB from './regulations/reg-m-b.json';
+import regMC from './regulations/reg-m-c.json';
 
-const regulations: Regulation[] = [regMA as Regulation, regMB as Regulation];
+const regulations: Regulation[] = [
+  regMA as Regulation,
+  regMB as Regulation,
+  regMC as Regulation,
+];
 
 export function getRegulations(): Regulation[] {
   return regulations;

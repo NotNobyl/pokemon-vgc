@@ -9,7 +9,7 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      selectedRegulationId: 'reg-m-a',
+      selectedRegulationId: 'reg-m-c',
       setRegulation: (id) => set({ selectedRegulationId: id }),
     }),
     { name: 'vgc-settings' },
