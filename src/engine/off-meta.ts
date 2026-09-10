@@ -313,3 +313,92 @@ export function overlookedCores(
   }
   return results.sort((x, y) => y.opportunity - x.opportunity).slice(0, limit);
 }
+
+
+// ---------------------------------------------------------------------------
+// New-in-regulation discovery
+// ---------------------------------------------------------------------------
+
+export interface NewInRegFinding extends DiscoveryFinding {
+  /** True when no usage data exists for this species yet (the common case for
+   *  a freshly-added mon) — the honest "before people get to it" signal. */
+  noUsageYet: boolean;
+}
+
+/**
+ * Surface species that are NEW to the current regulation as untapped picks —
+ * the "before the meta adapts" edge. This is deliberately NOT a usage or
+ * win-rate signal (a brand-new species has neither); it's a factual "this was
+ * just added, opponents have no data on it, and it's legal right now" flag.
+ *
+ * Honesty guarantees:
+ *  - Only returns species that actually resolve to the provided (already
+ *    reg-legal) dex, so nothing illegal or unseeded is suggested.
+ *  - If a `popularity` lookup shows a species ALREADY has meaningful usage, it
+ *    is NOT surfaced as "new/untapped" (the edge is gone) — novelty is honest.
+ *  - Never claims strength, optimality, or a win rate; the reason states only
+ *    that it's new and unscouted, and recommends test games.
+ *
+ * @param newSpeciesDisplayNames display names from the provenance-tagged config.
+ * @param legalDex the CURRENT-reg legal dex (name + types); caller filters it.
+ * @param popularity optional 0..1 usage popularity by canonical key; when a
+ *   species is already >~10% used, it's treated as no longer "untapped".
+ * @param limit max findings to return.
+ */
+export function newInRegFindings(
+  newSpeciesDisplayNames: string[],
+  legalDex: { name: string; types: PokemonType[] }[],
+  popularity?: (key: string) => number | null,
+  limit = 12,
+): NewInRegFinding[] {
+  if (newSpeciesDisplayNames.length === 0 || legalDex.length === 0) return [];
+
+  // Index the legal dex by canonical key for name resolution.
+  const dexByKey = new Map<string, { name: string; types: PokemonType[] }>();
+  for (const d of legalDex) dexByKey.set(canonicalize(d.name), d);
+
+  const findings: NewInRegFinding[] = [];
+  const seen = new Set<string>();
+  for (const displayName of newSpeciesDisplayNames) {
+    const key = canonicalize(displayName);
+    if (seen.has(key)) continue;
+    const dexEntry = dexByKey.get(key);
+    if (!dexEntry) continue; // not legal in this reg / not seeded — skip honestly
+    seen.add(key);
+
+    const pop = popularity?.(key) ?? 0;
+    // If it already has real usage, the "nobody's on it yet" edge is gone.
+    const noUsageYet = pop < 0.1;
+
+    // Novelty: brand-new + unused is maximally novel; existing usage lowers it.
+    const novelty = noUsageYet ? 0.95 : Number(Math.max(0.4, 1 - pop).toFixed(2));
+    // Confidence here is confidence in the FACT (it's new + legal), which is
+    // high — but we cap it so it never reads as a proven-strength claim, and so
+    // the shared label helper still routes it through experimental/speculative.
+    const confidence = 0.5;
+
+    findings.push({
+      key,
+      displayName: dexEntry.name,
+      novelty,
+      confidence,
+      label: labelFor(novelty, confidence),
+      noUsageYet,
+      reasons: [
+        noUsageYet
+          ? 'New to this regulation — no usage data exists yet, so opponents have nothing scouted on it.'
+          : `New to this regulation and already seeing some usage (${Math.round(pop * 100)}%) — the surprise factor is fading.`,
+        'This is a "freshly legal" flag, not a strength or win-rate claim — test it before trusting it.',
+      ],
+      suggestedTestMatches: testMatchesFor(confidence),
+    });
+  }
+
+  // Show the still-untapped ones first, then by novelty.
+  return findings
+    .sort(
+      (a, b) =>
+        Number(b.noUsageYet) - Number(a.noUsageYet) || b.novelty - a.novelty,
+    )
+    .slice(0, limit);
+}

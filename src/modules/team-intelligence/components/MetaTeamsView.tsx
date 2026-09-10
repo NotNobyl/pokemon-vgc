@@ -16,6 +16,9 @@ import {
   coverageGapFindings,
   usageResidualFindings,
 } from '@/engine/off-meta';
+import { regulationLegalDex } from '@/engine/regulation-dex';
+import { getRegulationById } from '@/data/regulation-loader';
+import { useSettingsStore } from '@/stores/settings-store';
 import { canonicalize } from '@/data/sources/showdown-mapping';
 
 /**
@@ -27,6 +30,7 @@ import { canonicalize } from '@/data/sources/showdown-mapping';
 export default function MetaTeamsView() {
   const season = useUsageStore((s) => s.season);
   const attribution = useUsageStore((s) => s.attribution);
+  const selectedRegulationId = useSettingsStore((s) => s.selectedRegulationId);
   const { createTeam, addMember } = useTeamStore();
 
   const [records, setRecords] = useState<PokemonUsage[]>([]);
@@ -92,16 +96,42 @@ export default function MetaTeamsView() {
     [dex],
   );
 
+  // Reg-aware candidate pool: the dex narrowed to the currently-selected
+  // regulation's legal species. Suggestions and discovery draw only from this,
+  // so nothing illegal in the active reg is ever proposed.
+  const regulation = useMemo(
+    () => getRegulationById(selectedRegulationId),
+    [selectedRegulationId],
+  );
+  const legalDex = useMemo(
+    () => regulationLegalDex(dex, regulation),
+    [dex, regulation],
+  );
+  // Canonical names of legal species, for constraining name-based generators.
+  const legalDexNames = useMemo(
+    () => legalDex.map((d) => d.name),
+    [legalDex],
+  );
+
   const suggestion = useMemo(() => {
     if (records.length === 0 || dex.length === 0) return null;
+    // Always constrain generation to the current reg's legal species. When the
+    // user also restricts to Pokémon they own, intersect the two pools.
+    const ownedList = availableOnly
+      ? availableInput.split(',').map((s) => s.trim()).filter(Boolean)
+      : null;
+    const legalCanon = new Set(legalDexNames.map((n) => canonicalize(n)));
+    const availablePool = (
+      ownedList
+        ? ownedList.filter((n) => legalCanon.has(canonicalize(n)))
+        : legalDexNames
+    );
     // Generate a small pool at this refresh offset, score each, pick the best.
     const pool = generateTeams(records, mode, {
       seedOffset: refreshIndex,
       count: 4,
       exclude: excludeInput.split(',').map((s) => s.trim()).filter(Boolean),
-      availableOnly: availableOnly
-        ? availableInput.split(',').map((s) => s.trim()).filter(Boolean)
-        : undefined,
+      availableOnly: availablePool.length > 0 ? availablePool : undefined,
       requiredMove: requiredMove.trim() || undefined,
       requiredItem: requiredItem.trim() || undefined,
       metaBias,
@@ -177,7 +207,7 @@ export default function MetaTeamsView() {
     const plan = buildGamePlan(planMembers);
 
     return { assembled, score: best.score, plan };
-  }, [records, dex, dexByCanon, usageByCanon, refreshIndex, moveTypeMap, mode, excludeInput, availableOnly, availableInput, requiredMove, requiredItem, metaBias]);
+  }, [records, dex, dexByCanon, usageByCanon, refreshIndex, moveTypeMap, mode, excludeInput, availableOnly, availableInput, requiredMove, requiredItem, metaBias, legalDexNames]);
 
   const teams: AssembledMetaTeam[] = useMemo(() => {
     if (records.length === 0) return [];
@@ -194,7 +224,7 @@ export default function MetaTeamsView() {
     }).filter((x): x is { name: string; types: PokemonType[] } => !!x) ?? [];
     const gaps = coverageGapFindings(
       topThreats,
-      dex.map((d) => ({ name: d.name, types: d.types })),
+      legalDex.map((d) => ({ name: d.name, types: d.types })),
       (k) => popularity.get(k) ?? 0.1,
       1,
     );
@@ -210,10 +240,10 @@ export default function MetaTeamsView() {
         i === 0 ? offMeta : undefined,
       ),
     );
-  }, [records, dex]);
+  }, [records, dex, legalDex]);
 
   const handleSave = async (team: AssembledMetaTeam) => {
-    const created = await createTeam(team.name, 'reg-m-a');
+    const created = await createTeam(team.name, selectedRegulationId);
     for (const set of team.sets) {
       const pokemonId = idByName.get(canonicalize(set.displayName));
       if (!pokemonId) continue;

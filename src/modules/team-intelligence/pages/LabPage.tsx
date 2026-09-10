@@ -22,13 +22,19 @@ import {
   coverageGapFindings,
   discoveryLabelText,
   overlookedCores,
+  newInRegFindings,
   type DiscoveryFinding,
   type CoverageCandidate,
   type OverlookedCore,
+  type NewInRegFinding,
 } from '@/engine/off-meta';
 import MetaTeamsView from '../components/MetaTeamsView';
 import { canonicalize as canon } from '@/data/sources/showdown-mapping';
 import { analyzeCore } from '@/engine/team-analysis';
+import { regulationLegalDex } from '@/engine/regulation-dex';
+import { getRegulationById } from '@/data/regulation-loader';
+import { getNewInRegConfig } from '@/data/regulations/new-in-reg';
+import { useSettingsStore } from '@/stores/settings-store';
 import type { BaseStats } from '@/types/pokemon';
 
 type Mode = 'breakdown' | 'compare' | 'recommend' | 'metateams';
@@ -43,6 +49,7 @@ type RecMode = 'proven' | 'core' | 'improve' | 'discover';
 export default function LabPage() {
   const { teams, loadTeams } = useTeamStore();
   const season = useUsageStore((s) => s.season);
+  const selectedRegulationId = useSettingsStore((s) => s.selectedRegulationId);
 
   const [mode, setMode] = useState<Mode>('breakdown');
   const [teamId, setTeamId] = useState<string>('');
@@ -52,6 +59,11 @@ export default function LabPage() {
   const [usageRecords, setUsageRecords] = useState<PokemonUsage[]>([]);
   const [dexTypes, setDexTypes] = useState<{ name: string; types: PokemonType[] }[]>([]);
   const [dexFull, setDexFull] = useState<{ name: string; baseStats: BaseStats }[]>([]);
+  // Canonical names legal in the currently-selected regulation. Discovery and
+  // improve candidate pools are constrained to this so nothing illegal in the
+  // active reg is suggested. (Saved-team scoring is NOT constrained — a team may
+  // legitimately contain a since-banned mon and should still be analyzable.)
+  const [legalNames, setLegalNames] = useState<Set<string>>(new Set());
   const [recMode, setRecMode] = useState<RecMode>('proven');
   const [coreInput, setCoreInput] = useState('');
   const [ready, setReady] = useState(false);
@@ -92,6 +104,13 @@ export default function LabPage() {
       if (!cancelled) {
         setDexTypes(allPokemon.map((p) => ({ name: p.name, types: p.types as PokemonType[] })));
         setDexFull(allPokemon.map((p) => ({ name: p.name, baseStats: p.baseStats })));
+        // Derive the reg-legal name set (canonical) from the full dex + ids.
+        const reg = getRegulationById(selectedRegulationId);
+        const legal = regulationLegalDex(
+          allPokemon.map((p) => ({ id: p.id, name: p.name })),
+          reg,
+        );
+        setLegalNames(new Set(legal.map((p) => canon(p.name))));
       }
       const result = new Map<string, ScorableMember[]>();
 
@@ -137,11 +156,22 @@ export default function LabPage() {
     return () => {
       cancelled = true;
     };
-  }, [teams]);
+  }, [teams, selectedRegulationId]);
 
   const metaLookup = useMemo(
     () => ({ popularity: (name: string) => popularity.get(name) ?? null }),
     [popularity],
+  );
+
+  // Reg-legal candidate dex for discovery/improve pools. Empty legalNames
+  // (e.g. before load, or reg not found) falls back to the full dex so the
+  // feature never silently produces nothing.
+  const legalDexTypes = useMemo(
+    () =>
+      legalNames.size === 0
+        ? dexTypes
+        : dexTypes.filter((d) => legalNames.has(canon(d.name))),
+    [dexTypes, legalNames],
   );
 
   // Enrich resolved members with real Champions Stat Point spread + alignment
@@ -251,7 +281,8 @@ export default function LabPage() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 40)
       .map(([key]) => dexTypes.find((d) => canon(d.name) === key)?.name)
-      .filter((n): n is string => !!n);
+      .filter((n): n is string => !!n)
+      .filter((n) => legalNames.size === 0 || legalNames.has(canon(n)));
     return improveCurrentTeamScored(
       members.map((m) => m.name),
       usageRecords,
@@ -259,12 +290,28 @@ export default function LabPage() {
       pool,
       3,
     );
-  }, [recMode, selectedTeam, scorable, usageRecords, popularity, dexTypes, scoreByNames]);
+  }, [recMode, selectedTeam, scorable, usageRecords, popularity, dexTypes, scoreByNames, legalNames]);
 
   const residualFindings: DiscoveryFinding[] = useMemo(
     () => (recMode === 'discover' ? usageResidualFindings(usageRecords, 6) : []),
     [recMode, usageRecords],
   );
+
+  // New-in-regulation picks: species freshly added in the selected reg, still
+  // legal and (usually) with no usage data yet — the "before people get to it"
+  // edge. Sourced from a provenance-tagged config, constrained to the reg-legal
+  // dex, and down-ranked automatically once a mon starts seeing usage.
+  const newInReg: NewInRegFinding[] = useMemo(() => {
+    if (recMode !== 'discover') return [];
+    const cfg = getNewInRegConfig(selectedRegulationId);
+    if (!cfg || legalDexTypes.length === 0) return [];
+    return newInRegFindings(
+      cfg.species,
+      legalDexTypes,
+      (key) => popularity.get(key) ?? null,
+      12,
+    );
+  }, [recMode, selectedRegulationId, legalDexTypes, popularity]);
 
   const coverageFindings: CoverageCandidate[] = useMemo(() => {
     if (recMode !== 'discover' || dexTypes.length === 0) return [];
@@ -277,11 +324,11 @@ export default function LabPage() {
       .filter((d): d is { name: string; types: PokemonType[] } => !!d);
     return coverageGapFindings(
       topThreats,
-      dexTypes,
+      legalDexTypes,
       (key) => popularity.get(key) ?? null,
       6,
     );
-  }, [recMode, dexTypes, popularity]);
+  }, [recMode, dexTypes, legalDexTypes, popularity]);
 
   // Overlooked cores: structurally strong pairs that are rarely used together.
   const overlooked: OverlookedCore[] = useMemo(() => {
@@ -305,7 +352,8 @@ export default function LabPage() {
       .sort((x, y) => y[1] - x[1])
       .slice(0, 50)
       .map(([key]) => dexTypes.find((d) => canon(d.name) === key))
-      .filter((d): d is { name: string; types: PokemonType[] } => !!d);
+      .filter((d): d is { name: string; types: PokemonType[] } => !!d)
+      .filter((d) => legalNames.size === 0 || legalNames.has(canon(d.name)));
 
     // Coherence resolver: pull common moves (usage) + base stats (dex) per mon
     // and run the unified analyzer so kit/speed coherence modulates the score.
@@ -345,7 +393,7 @@ export default function LabPage() {
     };
 
     return overlookedCores(pool, coOccur, 8, coherenceOf);
-  }, [recMode, usageRecords, dexTypes, popularity, dexFull]);
+  }, [recMode, usageRecords, dexTypes, popularity, dexFull, legalNames]);
 
   if (!ready) return <div className="text-gray-400">Loading…</div>;
 
@@ -416,6 +464,7 @@ export default function LabPage() {
               coreTeam={coreTeam}
               improvements={improvements}
               residualFindings={residualFindings}
+              newInReg={newInReg}
               coverageFindings={coverageFindings}
               overlooked={overlooked}
               hasUsage={usageRecords.length > 0}
@@ -488,6 +537,7 @@ function RecommendPanel({
   coreTeam,
   improvements,
   residualFindings,
+  newInReg,
   coverageFindings,
   overlooked,
   hasUsage,
@@ -501,6 +551,7 @@ function RecommendPanel({
   coreTeam: TeamCandidate | null;
   improvements: ImprovementSuggestion[];
   residualFindings: DiscoveryFinding[];
+  newInReg: NewInRegFinding[];
   coverageFindings: CoverageCandidate[];
   overlooked: OverlookedCore[];
   hasUsage: boolean;
@@ -597,6 +648,33 @@ function RecommendPanel({
             random low-usage picks. Nothing here is "optimal" or "broken"; treat
             each as an experiment and run the suggested test games.
           </p>
+
+          {newInReg.length > 0 && (
+            <div className="card border-purple-700 bg-purple-900/10">
+              <h3 className="font-semibold mb-1">🆕 New this regulation (get there first)</h3>
+              <p className="text-xs text-gray-500 mb-2">
+                Species freshly added to this regulation and legal right now.
+                Opponents have little-to-no data on them yet — an early-adopter
+                edge. This is a "freshly legal" flag, not a strength or win-rate
+                claim; test before trusting.
+              </p>
+              <ul className="space-y-2">
+                {newInReg.map((f) => (
+                  <li key={f.key} className="text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="capitalize font-medium flex-1">{f.displayName}</span>
+                      {f.noUsageYet && (
+                        <span className="text-[11px] text-purple-300">no usage yet</span>
+                      )}
+                      <span className="text-[11px] text-gray-400">{discoveryLabelText(f.label)}</span>
+                      <span className="text-[11px] text-gray-500">test ~{f.suggestedTestMatches} games</span>
+                    </div>
+                    <div className="text-xs text-gray-400">{f.reasons[0]}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {residualFindings.length > 0 && (
             <div className="card">

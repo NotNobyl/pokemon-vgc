@@ -4,6 +4,7 @@ import {
   coverageGapFindings,
   discoveryLabelText,
   overlookedCores,
+  newInRegFindings,
 } from '@/engine/off-meta';
 import type { PokemonUsage, UsageRow } from '@/types/usage';
 import type { PokemonType } from '@/types/pokemon';
@@ -122,5 +123,58 @@ describe('overlookedCores', () => {
     ];
     const cores = overlookedCores(dex, () => 0.9, 5); // already heavily co-used
     expect(cores).toHaveLength(0);
+  });
+});
+
+describe('newInRegFindings', () => {
+  const legalDex = [
+    { name: 'Baxcalibur', types: ['dragon', 'ice'] as PokemonType[] },
+    { name: 'Rillaboom', types: ['grass'] as PokemonType[] },
+    { name: 'Toxtricity (Amped Form)', types: ['electric', 'poison'] as PokemonType[] },
+  ];
+
+  it('surfaces reg-new species that resolve to the legal dex', () => {
+    const findings = newInRegFindings(['Baxcalibur', 'Rillaboom'], legalDex);
+    expect(findings.map((f) => f.key).sort()).toEqual(['baxcalibur', 'rillaboom']);
+    for (const f of findings) {
+      expect(f.noUsageYet).toBe(true);
+      expect(f.reasons.join(' ')).toMatch(/new to this regulation/i);
+      // Honesty: never a strength/win-rate claim.
+      expect(JSON.stringify(f)).not.toMatch(/optimal|broken|guaranteed|win rate/i);
+    }
+  });
+
+  it('skips names that are not in the legal dex (illegal/unseeded)', () => {
+    // Koraidon is not in the provided legal dex -> must be skipped.
+    const findings = newInRegFindings(['Baxcalibur', 'Koraidon'], legalDex);
+    expect(findings.map((f) => f.key)).toEqual(['baxcalibur']);
+  });
+
+  it('canonicalizes form names like "Toxtricity (Amped Form)"', () => {
+    const findings = newInRegFindings(['Toxtricity (Amped Form)'], legalDex);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].key).toBe('toxtricityampedform');
+  });
+
+  it('marks an already-used new species as no-longer-untapped and ranks it lower', () => {
+    const pop = (k: string) => (k === 'rillaboom' ? 0.4 : 0);
+    const findings = newInRegFindings(['Rillaboom', 'Baxcalibur'], legalDex, pop);
+    const rilla = findings.find((f) => f.key === 'rillaboom')!;
+    const bax = findings.find((f) => f.key === 'baxcalibur')!;
+    expect(rilla.noUsageYet).toBe(false);
+    expect(bax.noUsageYet).toBe(true);
+    // Untapped one ranks ahead of the already-used one.
+    expect(findings[0].key).toBe('baxcalibur');
+    expect(rilla.reasons.join(' ')).toMatch(/surprise factor is fading/i);
+  });
+
+  it('returns empty for empty inputs', () => {
+    expect(newInRegFindings([], legalDex)).toEqual([]);
+    expect(newInRegFindings(['Baxcalibur'], [])).toEqual([]);
+  });
+
+  it('deduplicates repeated names', () => {
+    const findings = newInRegFindings(['Baxcalibur', 'Baxcalibur'], legalDex);
+    expect(findings).toHaveLength(1);
   });
 });
